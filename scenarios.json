@@ -1,0 +1,46 @@
+{
+  "tailing_chaos": {
+    "type": "TAILING",
+    "description": "Lead car randomly brakes to test following logic",
+    "start_node": 428,
+    "target_node": 447,
+    "agent_count": 5,
+    "spawn_spacing_m": 3.0,
+    "chaos_prob": 0.1
+  },
+  "merge_traffic": {
+    "type": "MERGE",
+    "description": "Heavy traffic merging from two lanes",
+    "merge_node": 548,
+    "lane_a_start": 547,
+    "lane_b_start": 904,
+    "exit_node": 905,
+    "cars_per_lane": 3
+  },
+  "dual_valid": {
+    "type": "DUAL_LOGIC",
+    "description": "Adjacent Cargo (Ports 0,1) -> Should generate 1 Dual Mission",
+    "src_machine": 953,
+    "dst_machine": 955,
+    "ports": [0, 1]
+  },
+  "dual_invalid": {
+    "type": "DUAL_LOGIC",
+    "description": "Split Cargo (Ports 0,2) -> Should generate 2 Single Missions",
+    "src_machine": 953,
+    "dst_machine": 955,
+    "ports": [0, 2]
+  },
+  "error_pickup": {
+    "type": "ERROR_HANDLING",
+    "description": "Mission pointing to empty port",
+    "machine_node": 953,
+    "mode": "GHOST_PICKUP"
+  },
+  "error_dropoff": {
+    "type": "ERROR_HANDLING",
+    "description": "Mission dropping into full port",
+    "machine_node": 955,
+    "mode": "JAMMED_DROPOFF"
+  }
+}

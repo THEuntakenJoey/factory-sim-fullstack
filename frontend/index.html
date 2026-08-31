@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OHT-Kinematic Factory Simulator & Track Builder</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; color: #f8fafc; overflow: hidden; }
+        #root { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        
+        .topbar {
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            padding: 0 16px;
+            align-items: center;
+            height: 48px;
+            gap: 24px;
+        }
+        
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 14px 0;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-btn:hover { color: #f8fafc; }
+        .tab-btn.active {
+            color: #38bdf8;
+            border-bottom-color: #38bdf8;
+        }
+
+        .badge {
+            background: #ef4444;
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+        }
+
+        .workspace { display: flex; flex: 1; overflow: hidden; }
+
+        /* Sidebar Styling */
+        .sidebar { 
+            width: 340px; 
+            background: #1e293b; 
+            border-right: 1px solid #334155; 
+            padding: 16px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 16px; 
+            overflow-y: auto;
+            z-index: 10;
+        }
+        
+        .main-content { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column;
+            position: relative; 
+            height: 100%;
+            background-color: #090d16;
+        }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas { 
+            display: block; 
+            width: 100%; 
+            height: 100%; 
+        }
+
+        .panel { 
+            background: #0f172a; 
+            padding: 14px; 
+            border-radius: 8px; 
+            border: 1px solid #334155; 
+        }
+        
+        .panel h3 { 
+            margin: 0 0 10px 0; 
+            font-size: 14px; 
+            text-transform: uppercase; 
+            letter-spacing: 0.05em; 
+            color: #94a3b8; 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .metric-value { font-size: 22px; font-weight: 700; color: #38bdf8; }
+        
+        .tool-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .tool-btn {
+            background: #334155;
+            color: #f8fafc;
+            border: 1px solid #475569;
+            padding: 10px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            text-align: center;
+            transition: all 0.15s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .tool-btn:hover { background: #475569; }
+        .tool-btn.active {
+            background: #0284c7;
+            border-color: #38bdf8;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+        }
+
+        .tool-sub {
+            font-size: 11px;
+            color: #cbd5e1;
+            font-weight: normal;
+        }
+
+        button.action-btn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: background 0.15s ease;
+        }
+        button.action-btn:hover { background: #1d4ed8; }
+
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .helper-banner {
+            position: absolute;
+            top: 12px;
+            left: 16px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid #334155;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #cbd5e1;
+            pointer-events: none;
+            display: flex;
+            gap: 16px;
+            z-index: 5;
+        }
+
+        .helper-item b { color: #38bdf8; }
+
+        .form-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+
+        input, select {
+            background: #1e293b;
+            border: 1px solid #475569;
+            color: #f8fafc;
+            padding: 6px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        /* Machine Designer Specifics */
+        .designer-grid-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-image: 
+                linear-gradient(to right, #1e293b 1px, transparent 1px),
+                linear-gradient(to bottom, #1e293b 1px, transparent 1px);
+            background-size: 50px 50px;
+            background-position: center center;
+        }
+
+        .machine-block {
+            background: rgba(2, 132, 199, 0.2);
+            border: 2px solid #38bdf8;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .port-node {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #fbbf24;
+            border: 2px solid #0f172a;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            z-index: 10;
+        }
+        
+        .port-node.LOAD { background: #4ade80; }
+        .port-node.UNLOAD { background: #ef4444; }
+        .port-node.BOTH { background: #fbbf24; }
+
+        .list-item {
+            padding: 10px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .list-item:hover { border-color: #475569; }
+        .list-item.selected { border-color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script src="js/api.js"></script>
+    <script src="js/builder.js"></script>
+    <script src="js/renderer.js"></script>
+
+    <script type="text/babel" src="js/components/MapBuilderTab.jsx"></script>
+    <script type="text/babel" src="js/components/MachineDesignerTab.jsx"></script>
+    <script type="text/babel" src="js/components/RecipeManagerTab.jsx"></script>
+    <script type="text/babel" src="js/components/App.jsx"></script>
+</body>
+</html>

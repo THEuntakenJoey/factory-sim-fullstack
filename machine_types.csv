@@ -1,0 +1,3 @@
+type_id,row_offsets,slot_offsets,z_heights,valid_pairs
+OHB_T1,-400;400,-312;-104;104;312,500,ANY
+OHB_T2,-200;600,-400;-150;150;400,600,,
