@@ -73,44 +73,44 @@ async def websocket_endpoint(websocket: WebSocket):
 def read_root():
     return {"status": "ok"}
 
-# Map Management Endpoints
-MAPS_DIR = os.path.join(os.path.dirname(__file__), 'maps')
-os.makedirs(MAPS_DIR, exist_ok=True)
+# Project Management Endpoints
+PROJECTS_DIR = os.path.join(os.path.dirname(__file__), 'projects')
+os.makedirs(PROJECTS_DIR, exist_ok=True)
 
-@app.get("/api/maps")
-def list_maps():
-    files = [f for f in os.listdir(MAPS_DIR) if f.endswith('.json')]
-    return {"maps": files}
+def get_project_dir(project: str):
+    path = os.path.join(PROJECTS_DIR, project)
+    os.makedirs(path, exist_ok=True)
+    os.makedirs(os.path.join(path, 'maps'), exist_ok=True)
+    os.makedirs(os.path.join(path, 'schema'), exist_ok=True)
+    return path
 
-@app.get("/api/maps/{filename}")
-def load_map(filename: str):
-    path = os.path.join(MAPS_DIR, filename)
+@app.get("/api/maps/{project}")
+def list_maps(project: str):
+    maps_dir = os.path.join(get_project_dir(project), 'maps')
+    maps = [f for f in os.listdir(maps_dir) if f.endswith('.json')]
+    return {"maps": maps}
+
+@app.get("/api/maps/{project}/{filename}")
+def load_map(project: str, filename: str):
+    if not filename.endswith('.json'): filename += '.json'
+    path = os.path.join(get_project_dir(project), 'maps', filename)
     if not os.path.exists(path):
         return {"error": "File not found"}, 404
     with open(path, 'r') as f:
         return json.load(f)
 
-@app.post("/api/maps/{filename}")
-async def save_map(filename: str, req: dict = None):
-    # Depending on how frontend sends it, we can read raw body
-    from fastapi import Request
-    # But since we use a route parameter, let's accept it as body dict.
-    # To keep it simple, we'll parse the request body directly.
-    pass
-
-@app.post("/api/save_map/{filename}")
-async def save_map_post(filename: str, request: Request):
-    path = os.path.join(MAPS_DIR, filename)
-    if not path.endswith('.json'):
-        path += '.json'
+@app.post("/api/save_map/{project}/{filename}")
+async def save_map_post(project: str, filename: str, request: Request):
+    if not filename.endswith('.json'): filename += '.json'
+    path = os.path.join(get_project_dir(project), 'maps', filename)
     data = await request.json()
     with open(path, 'w') as f:
         json.dump(data, f, indent=2)
-    return {"status": "ok", "filename": os.path.basename(path)}
+    return {"status": "ok", "filename": filename}
 
 @app.get("/api/schemas/{project}")
 def get_schemas(project: str):
-    path = os.path.join(MAPS_DIR, f"{project}_schemas.json")
+    path = os.path.join(get_project_dir(project), 'schema', 'machineAndSchema.json')
     if not os.path.exists(path):
         return {}
     with open(path, 'r') as f:
@@ -118,7 +118,7 @@ def get_schemas(project: str):
 
 @app.post("/api/schemas/{project}")
 async def save_schemas(project: str, request: Request):
-    path = os.path.join(MAPS_DIR, f"{project}_schemas.json")
+    path = os.path.join(get_project_dir(project), 'schema', 'machineAndSchema.json')
     data = await request.json()
     with open(path, 'w') as f:
         json.dump(data, f, indent=2)
@@ -126,7 +126,7 @@ async def save_schemas(project: str, request: Request):
 
 @app.get("/api/recipes/{project}")
 def get_recipes(project: str):
-    path = os.path.join(MAPS_DIR, f"{project}_recipes.json")
+    path = os.path.join(get_project_dir(project), 'schema', 'recipes.json')
     if not os.path.exists(path):
         return {}
     with open(path, 'r') as f:
@@ -134,8 +134,19 @@ def get_recipes(project: str):
 
 @app.post("/api/recipes/{project}")
 async def save_recipes(project: str, request: Request):
-    path = os.path.join(MAPS_DIR, f"{project}_recipes.json")
+    path = os.path.join(get_project_dir(project), 'schema', 'recipes.json')
     data = await request.json()
     with open(path, 'w') as f:
         json.dump(data, f, indent=2)
     return {"status": "ok"}
+
+@app.get("/api/projects")
+def list_projects():
+    projects = []
+    if os.path.exists(PROJECTS_DIR):
+        for f in os.listdir(PROJECTS_DIR):
+            if os.path.isdir(os.path.join(PROJECTS_DIR, f)):
+                projects.append(f)
+    if not projects:
+        projects = ["factory1"] # default
+    return {"projects": projects}

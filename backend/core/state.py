@@ -11,9 +11,6 @@ class FactoryState:
     Global container for all simulation state.
     """
     def __init__(self, map_path: str, schema_path: str = None):
-        import os
-        if not schema_path:
-            schema_path = os.path.join(os.path.dirname(__file__), '..', '..', 'machine_schema.json')
         # 1. Static Layout
         self.map_mgr = MapManager(map_path)
         

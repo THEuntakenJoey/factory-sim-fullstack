@@ -1,0 +1,56 @@
+{
+  "1": {
+    "id": "1",
+    "width": 3,
+    "height": 1.5,
+    "ports": [
+      {
+        "id": "p1788269292962",
+        "rel_x": 1.5,
+        "rel_y": 0,
+        "type": "LOAD"
+      },
+      {
+        "id": "p1788269294746",
+        "rel_x": -1.5,
+        "rel_y": 0,
+        "type": "LOAD"
+      }
+    ],
+    "capacity": 1,
+    "process_mode": "batch",
+    "intake_mode": "continuous",
+    "process_time": 5,
+    "intake_time": 1,
+    "port_lots_load": 1,
+    "port_lots_unload": 1,
+    "is_stub": false
+  },
+  "2": {
+    "id": "2",
+    "width": 2,
+    "height": 2,
+    "ports": [
+      {
+        "id": "p1788275422472",
+        "rel_x": 1,
+        "rel_y": 0,
+        "type": "LOAD"
+      },
+      {
+        "id": "p1788275423482",
+        "rel_x": -1,
+        "rel_y": 0,
+        "type": "LOAD"
+      }
+    ],
+    "capacity": 1,
+    "process_mode": "batch",
+    "intake_mode": "continuous",
+    "process_time": 5,
+    "intake_time": 1,
+    "port_lots_load": 1,
+    "port_lots_unload": 1,
+    "is_stub": false
+  }
+}

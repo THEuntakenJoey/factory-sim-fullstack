@@ -13,6 +13,19 @@ function MapBuilderTab({ project, schemas }) {
     const [metrics, setMetrics] = useState({ throughput: 0, active_vehicles: 0, average_wait_time: 0 });
     const [verifyResults, setVerifyResults] = useState(null);
     const canvasRef = useRef(null);
+    const [mapList, setMapList] = useState([]);
+    const [selectedMap, setSelectedMap] = useState("");
+
+    const fetchMaps = () => {
+        window.API.listMaps(project).then(maps => {
+            setMapList(maps || []);
+            if (maps && maps.length > 0 && !selectedMap) setSelectedMap(maps[0]);
+        });
+    };
+
+    useEffect(() => {
+        fetchMaps();
+    }, []);
 
     useEffect(() => {
         // Initialize Map Builder on canvas
@@ -23,18 +36,18 @@ function MapBuilderTab({ project, schemas }) {
             const renderLoop = () => {
                 setBuilderState(prev => ({
                     ...prev,
-                    selectedTrack: window.Builder.getSelectedTrack(),
-                    selectedMachine: window.Builder.getSelectedMachine(),
-                    trackCount: window.Builder.getTrackCount(),
-                    activeTool: window.Builder.getActiveTool(),
-                    toolHeading: window.Builder.getToolHeading()
+                    selectedTrack: window.Builder.tracks.find(t => t.id === window.Builder.selectedTrackId) || null,
+                    selectedMachine: window.Builder.machines.find(m => m.id === window.Builder.selectedMachineId) || null,
+                    trackCount: window.Builder.tracks.length,
+                    activeTool: window.Builder.activeTool,
+                    toolHeading: window.Builder.toolHeading
                 }));
                 requestAnimationFrame(renderLoop);
             };
             renderLoop();
             
-            // Load map for this project
-            window.API.request(`/api/maps/${project}.json`).then(data => {
+            // Load default map for this project
+            window.API.loadMap(project, 'map.json').then(data => {
                 if (data && !data.error) window.Builder.loadGraph(data);
             }).catch(e => console.log("Map not found, starting fresh."));
         }
@@ -46,30 +59,30 @@ function MapBuilderTab({ project, schemas }) {
     }, [schemas]);
 
     const setTool = (t) => {
-        window.Builder.setActiveTool(t);
-        setBuilderState(prev => ({ ...prev, activeTool: t }));
+        window.Builder.setTool(t === 'SELECT' ? null : t);
+        setBuilderState(prev => ({ ...prev, activeTool: t === 'SELECT' ? null : t }));
     };
 
     const handleSave = async () => {
         const graph = window.Builder.saveGraph();
-        await window.API.request(`/api/save_map/${project}`, {
-            method: 'POST',
-            body: JSON.stringify(graph)
-        });
-        alert(`Saved map to ${project}.json`);
+        try {
+            await window.API.saveMap(project, selectedMap || 'map.json', graph);
+            alert(`Saved map to ${selectedMap || 'map.json'}`);
+            fetchMaps();
+        } catch (e) {
+            alert("Error saving map: " + e.message);
+        }
     };
 
     const handleVerify = async () => {
-        const graph = window.Builder.saveGraph();
-        const res = await window.API.verifyGraph(graph);
+        const res = window.Builder.verifyMap();
         setVerifyResults(res);
-        if (res.is_valid) {
-            window.Builder.clearErrors();
-            alert("Map is valid!");
+        if (res.errors.length === 0) {
+            alert("Map is valid!" + (res.warnings.length ? ` (${res.warnings.length} warnings)` : ""));
         } else {
-            window.Builder.highlightErrors(res.errored_pieces, res.loose_ends);
-            alert(`Map has ${res.errored_pieces.length} overlap errors and ${res.loose_ends.length} loose ends.`);
+            alert(`Map has ${res.errors.length} errors and ${res.warnings.length} warnings.`);
         }
+        window.Builder._notify();
     };
 
     return (
@@ -84,14 +97,23 @@ function MapBuilderTab({ project, schemas }) {
                         <button className={`tool-btn ${builderState.activeTool === 'STRAIGHT' ? 'active' : ''}`} onClick={() => setTool('STRAIGHT')}>
                             <span style={{fontSize: '18px'}}>↑</span> Straight
                         </button>
-                        <button className={`tool-btn ${builderState.activeTool === 'CURVE' ? 'active' : ''}`} onClick={() => setTool('CURVE')}>
-                            <span style={{fontSize: '18px'}}>↗</span> Curve
+                        <button className={`tool-btn ${builderState.activeTool === 'TURN_L' ? 'active' : ''}`} onClick={() => setTool('TURN_L')}>
+                            <span style={{fontSize: '18px'}}>↖</span> Turn L
                         </button>
-                        <button className={`tool-btn ${builderState.activeTool === 'DIVERGE' ? 'active' : ''}`} onClick={() => setTool('DIVERGE')}>
-                            <span style={{fontSize: '18px'}}>Y</span> Diverge
+                        <button className={`tool-btn ${builderState.activeTool === 'TURN_R' ? 'active' : ''}`} onClick={() => setTool('TURN_R')}>
+                            <span style={{fontSize: '18px'}}>↗</span> Turn R
                         </button>
-                        <button className={`tool-btn ${builderState.activeTool === 'MERGE' ? 'active' : ''}`} onClick={() => setTool('MERGE')}>
-                            <span style={{fontSize: '18px'}}>⑃</span> Merge
+                        <button className={`tool-btn ${builderState.activeTool === 'DIVERGE_L' ? 'active' : ''}`} onClick={() => setTool('DIVERGE_L')}>
+                            <span style={{fontSize: '18px'}}>Y</span> Div L
+                        </button>
+                        <button className={`tool-btn ${builderState.activeTool === 'DIVERGE_R' ? 'active' : ''}`} onClick={() => setTool('DIVERGE_R')}>
+                            <span style={{fontSize: '18px'}}>Y</span> Div R
+                        </button>
+                        <button className={`tool-btn ${builderState.activeTool === 'MERGE_L' ? 'active' : ''}`} onClick={() => setTool('MERGE_L')}>
+                            <span style={{fontSize: '18px'}}>⑃</span> Merge L
+                        </button>
+                        <button className={`tool-btn ${builderState.activeTool === 'MERGE_R' ? 'active' : ''}`} onClick={() => setTool('MERGE_R')}>
+                            <span style={{fontSize: '18px'}}>⑃</span> Merge R
                         </button>
                         <button className={`tool-btn ${builderState.activeTool === 'MACHINE' ? 'active' : ''}`} onClick={() => setTool('MACHINE')}>
                             <span style={{fontSize: '18px'}}>■</span> Machine
@@ -121,11 +143,70 @@ function MapBuilderTab({ project, schemas }) {
                     </div>
                 )}
 
+                {(builderState.activeTool === 'STRAIGHT' || (builderState.selectedTrack && builderState.selectedTrack.type === 'STRAIGHT')) && (
+                    <div className="panel">
+                        <h3>Straight Track Settings</h3>
+                        <div className="form-row">
+                            <span>Length:</span>
+                            <input 
+                                type="number" 
+                                step="0.1" 
+                                min="0.2" 
+                                max="20.0"
+                                value={builderState.selectedTrack ? builderState.selectedTrack.length : (window.Builder.straightLength || 1.0)} 
+                                onChange={e => {
+                                    const val = parseFloat(e.target.value);
+                                    if (builderState.selectedTrack) {
+                                        window.Builder.setStraightLength(builderState.selectedTrack.id, val);
+                                    } else {
+                                        window.Builder.straightLength = val;
+                                        setBuilderState(prev => ({...prev}));
+                                    }
+                                }}
+                                style={{width: '80px', textAlign: 'right'}}
+                            />
+                        </div>
+                    </div>
+                )}
+
                 <div className="panel">
                     <h3>Map Actions</h3>
                     <div className="btn-group">
                         <button className="action-btn" onClick={handleSave}>Save</button>
+                        <button className="action-btn" onClick={() => {
+                            const name = prompt("Enter map name to save as:");
+                            if (name) {
+                                const graph = window.Builder.saveGraph();
+                                window.API.saveMap(project, name + (name.endsWith('.json') ? '' : '.json'), graph).then(() => {
+                                    alert(`Saved map to ${name}`);
+                                    fetchMaps();
+                                }).catch(e => alert("Error saving map: " + e));
+                            }
+                        }}>Save As</button>
+                        <button className="action-btn" onClick={() => {
+                            if (confirm("Are you sure you want to clear the map?")) {
+                                window.Builder.clear();
+                            }
+                        }} style={{background: '#ef4444'}}>Clear</button>
                         <button className="action-btn" onClick={handleVerify} style={{background: '#059669'}}>Verify</button>
+                    </div>
+                    <div className="form-row" style={{marginTop: '8px', gap: '8px', justifyContent: 'flex-start'}}>
+                        <select 
+                            value={selectedMap} 
+                            onChange={e => setSelectedMap(e.target.value)}
+                            style={{flex: 1}}
+                        >
+                            {mapList.map(m => (
+                                <option key={m} value={m}>{m}</option>
+                            ))}
+                        </select>
+                        <button className="action-btn" onClick={() => {
+                            if (selectedMap) {
+                                window.API.loadMap(project, selectedMap)
+                                    .then(data => { window.Builder.loadGraph(data); alert(`Loaded ${selectedMap}`); })
+                                    .catch(e => alert("Error loading map: " + e));
+                            }
+                        }}>Load</button>
                     </div>
                 </div>
 

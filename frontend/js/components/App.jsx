@@ -4,9 +4,22 @@ const { useState, useEffect } = React;
 function App() {
     const [activeTab, setActiveTab] = useState('map');
     const [project, setProject] = useState('factory1');
+    const [projectList, setProjectList] = useState(['factory1']);
     const [schemas, setSchemas] = useState({});
     const [recipes, setRecipes] = useState({});
     
+    useEffect(() => {
+        // Fetch list of projects on mount
+        window.API.request('/api/projects').then(data => {
+            if (data && data.projects && data.projects.length > 0) {
+                setProjectList(data.projects);
+                if (!data.projects.includes(project)) {
+                    setProject(data.projects[0]);
+                }
+            }
+        }).catch(e => console.error("Failed to load projects list"));
+    }, []);
+
     // Auto-save debouncer could go here, but for now we manually save or save on change
     const loadProjectData = async (projName) => {
         try {
@@ -54,19 +67,45 @@ function App() {
                 
                 <div style={{marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px'}}>
                     <span style={{fontSize: '12px', color: '#94a3b8'}}>Project:</span>
-                    <input 
-                        type="text" 
+                    <select 
                         value={project} 
                         onChange={e => setProject(e.target.value)}
-                        style={{width: '120px'}}
-                    />
+                        style={{width: '120px', padding: '4px'}}
+                    >
+                        {projectList.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                        ))}
+                    </select>
+                    <button 
+                        className="action-btn" 
+                        style={{padding: '4px 8px'}}
+                        onClick={() => {
+                            const newProj = prompt("Enter new project name:");
+                            if (newProj && newProj.trim()) {
+                                const cleanName = newProj.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+                                if (cleanName) {
+                                    setProjectList(prev => [...new Set([...prev, cleanName])]);
+                                    setProject(cleanName);
+                                }
+                            }
+                        }}
+                    >
+                        New
+                    </button>
                 </div>
             </div>
 
+            {/* Tab Contents - Keep all mounted to avoid canvas reload */}
             <div className="workspace">
-                {activeTab === 'map' && <MapBuilderTab project={project} schemas={schemas} />}
-                {activeTab === 'machine' && <MachineDesignerTab schemas={schemas} saveSchemas={saveSchemas} />}
-                {activeTab === 'recipe' && <RecipeManagerTab recipes={recipes} saveRecipes={saveRecipes} schemas={schemas} saveSchemas={saveSchemas} />}
+                <div style={{ flex: 1, display: activeTab === 'map' ? 'block' : 'none' }}>
+                    <MapBuilderTab project={project} schemas={schemas} recipes={recipes} />
+                </div>
+                <div style={{ flex: 1, display: activeTab === 'machine' ? 'block' : 'none' }}>
+                    <MachineDesignerTab schemas={schemas} saveSchemas={saveSchemas} />
+                </div>
+                <div style={{ flex: 1, display: activeTab === 'recipe' ? 'block' : 'none' }}>
+                    <RecipeManagerTab recipes={recipes} saveRecipes={saveRecipes} schemas={schemas} />
+                </div>
             </div>
         </React.Fragment>
     );

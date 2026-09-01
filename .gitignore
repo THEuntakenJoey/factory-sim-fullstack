@@ -10,3 +10,5 @@ wheels/
 .venv
 
 *.usd
+
+old_reference/

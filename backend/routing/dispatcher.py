@@ -23,14 +23,14 @@ class VirtualMES:
     The 'Boss'. Knows inventory and generates high-level Transport Requests.
     For this test, it implements the 'Mindless Shuffle' logic.
     """
-    def __init__(self, map_mgr: MapManager, schema_path: str):
+    def __init__(self, map_mgr: MapManager, schema_path: str = None):
         self.map_mgr = map_mgr
 
         # 1. Load Schema
-        if not os.path.exists(schema_path):
-            raise FileNotFoundError(f"Schema not found: {schema_path}")
-        with open(schema_path, 'r') as f:
-            self.schema = json.load(f)
+        self.schema = {}
+        if schema_path and os.path.exists(schema_path):
+            with open(schema_path, 'r') as f:
+                self.schema = json.load(f)
 
         # 2. Build Virtual Factory
         # Key: Node_ID (int), Value: VirtualMachine Object

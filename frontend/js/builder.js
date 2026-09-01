@@ -253,6 +253,8 @@ window.Builder = {
     },
 
     _setupEvents: function() {
+        if (this._eventsSetup) return;
+        this._eventsSetup = true;
         const c = this.canvas;
 
         c.addEventListener('contextmenu', (e) => {
@@ -976,20 +978,12 @@ window.Builder = {
         return results;
     },
 
-    saveGraph: async function(filename) {
-        if (!filename) filename = "map.json";
-        const data = { nodes: this.nodes, tracks: this.tracks, machines: this.machines };
-        try {
-            const res = await window.API.saveMap(filename, data);
-            alert(`Saved map to ${res.filename} with ${this.tracks.length} tracks and ${this.machines.length} machines!`);
-        } catch (e) {
-            alert("Error saving map: " + e.message);
-        }
+    saveGraph: function() {
+        return { nodes: this.nodes, tracks: this.tracks, machines: this.machines };
     },
     
-    loadGraph: async function(filename) {
+    loadGraph: function(data) {
         try {
-            const data = await window.API.loadMap(filename);
             this.clear();
             if (data.tracks) {
                 this.tracks = data.tracks;

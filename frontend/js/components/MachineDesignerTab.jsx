@@ -3,6 +3,7 @@ const { useState } = React;
 function MachineDesignerTab({ schemas, saveSchemas }) {
     const [selectedId, setSelectedId] = useState(null);
     const [newId, setNewId] = useState("");
+    const [previewPort, setPreviewPort] = useState(null);
 
     const handleCreate = () => {
         if (!newId.trim() || schemas[newId.trim()]) return;
@@ -41,23 +42,18 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
 
     const UNIT = 50; // pixels per physical unit
 
-    // Handle Canvas Click for Ports
-    const handleCanvasClick = (e) => {
-        if (!activeSchema) return;
-        
+    const getSnappedPos = (e) => {
+        if (!activeSchema) return null;
         const rect = e.currentTarget.getBoundingClientRect();
-        // Mouse relative to the CENTER of the grid container (which is where the machine is centered)
         const mx = e.clientX - rect.left - rect.width / 2;
         const my = e.clientY - rect.top - rect.height / 2;
         
-        // Convert to physical units
         let rel_x = mx / UNIT;
-        let rel_y = my / UNIT;
+        let rel_y = -my / UNIT;
 
         const hw = activeSchema.width / 2;
         const hh = activeSchema.height / 2;
 
-        // Snapping logic: Center (0,0), Corners (±hw, ±hh), Edge Centers (0, ±hh or ±hw, 0)
         const snapPoints = [
             { x: 0, y: 0 },
             { x: hw, y: hh }, { x: -hw, y: hh }, { x: hw, y: -hh }, { x: -hw, y: -hh },
@@ -71,16 +67,22 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
             if (d < bestDist) { bestDist = d; bestSnap = p; }
         }
 
-        // If close enough (e.g. within 0.5 units), snap it.
         if (bestDist < 0.5) {
             rel_x = bestSnap.x;
             rel_y = bestSnap.y;
         }
+        return { rel_x, rel_y };
+    };
+
+    // Handle Canvas Click for Ports
+    const handleCanvasClick = (e) => {
+        const pos = getSnappedPos(e);
+        if (!pos) return;
 
         const newPort = {
             id: 'p' + Date.now(),
-            rel_x: rel_x,
-            rel_y: rel_y,
+            rel_x: pos.rel_x,
+            rel_y: pos.rel_y,
             type: 'LOAD'
         };
 
@@ -140,7 +142,12 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
 
             {activeSchema ? (
                 <div style={{ display: 'flex', flex: 1 }}>
-                    <div className="designer-grid-container" onClick={handleCanvasClick}>
+                    <div 
+                        className="designer-grid-container" 
+                        onClick={handleCanvasClick}
+                        onMouseMove={(e) => setPreviewPort(getSnappedPos(e))}
+                        onMouseLeave={() => setPreviewPort(null)}
+                    >
                         {/* Machine Footprint */}
                         <div 
                             className="machine-block"
@@ -164,13 +171,25 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
                                 className={`port-node ${p.type}`}
                                 style={{
                                     left: `calc(50% + ${p.rel_x * UNIT}px)`,
-                                    top: `calc(50% + ${p.rel_y * UNIT}px)`
+                                    top: `calc(50% - ${p.rel_y * UNIT}px)`
                                 }}
                                 onClick={(e) => { e.stopPropagation(); handleTogglePort(idx); }}
                                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleRemovePort(idx); }}
                                 title={`${p.type} (Right click to remove)`}
                             />
                         ))}
+                        {/* Preview Port */}
+                        {previewPort && (
+                            <div 
+                                className="port-node LOAD"
+                                style={{
+                                    left: `calc(50% + ${previewPort.rel_x * UNIT}px)`,
+                                    top: `calc(50% - ${previewPort.rel_y * UNIT}px)`,
+                                    opacity: 0.5,
+                                    pointerEvents: 'none'
+                                }}
+                            />
+                        )}
                     </div>
 
                     <div className="sidebar" style={{ width: '320px', borderLeft: '1px solid #334155', borderRight: 'none' }}>
