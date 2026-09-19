@@ -1,100 +1,75 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING, List, Dict, Tuple, Optional
+import heapq
+from typing import List, Optional, Dict, Any
+from .interfaces import PathfindingStrategy
 
-import numpy as np
+class DijkstraPathfinder(PathfindingStrategy):
+    """Computes shortest physical distance paths on the track graph."""
+    def find_path(self, map_mgr: Any, start_node: int, end_node: int, traffic_data: Optional[Dict[str, Any]] = None) -> Optional[List[str]]:
+        if start_node == end_node:
+            return []
+        
+        q = [(0.0, start_node, [])]
+        visited = set()
 
-if TYPE_CHECKING:
-    from agent import OHTAgent
+        while q:
+            cost, curr, path = heapq.heappop(q)
+            if curr in visited:
+                continue
+            visited.add(curr)
 
-class TrafficRegistry:
+            if curr == end_node:
+                return path
+
+            for neighbor, seg_id, weight in map_mgr.graph.get(curr, []):
+                if neighbor not in visited:
+                    heapq.heappush(q, (cost + weight, neighbor, path + [seg_id]))
+        return None
+
+class CongestionAwarePathfinder(PathfindingStrategy):
     """
-    A lightweight spatial hash map to allow O(1) lookups of who is on a track.
-    Refreshed every frame to ensure up-to-date collision detection.
+    Computes dynamic shortest paths, penalizing segments with active traffic,
+    slow-moving vehicles, or recent traffic jam history.
     """
-    def __init__(self):
-        # Spatial Hash: Segment -> [Agents]
-        self.registry: Dict[int, List['OHTAgent']] = {}
-       
-        # Intent Hash: MergeNode -> [(Agent, Snapshot_Distance), ...]
-        self.zone_registry: Dict[int, List[Tuple['OHTAgent', float]]] = {}
+    def find_path(self, map_mgr: Any, start_node: int, end_node: int, traffic_data: Optional[Dict[str, Any]] = None) -> Optional[List[str]]:
+        if start_node == end_node:
+            return []
 
-    def clear(self):
-        """Call this at the start of every simulation frame."""
-        self.registry = {}
-        self.zone_registry = {}
+        # traffic_data format:
+        # {
+        #    "occupancy": { seg_id: count },
+        #    "jam_time": { seg_id: seconds }
+        # }
+        occupancy = (traffic_data or {}).get("occupancy", {})
+        jam_time = (traffic_data or {}).get("jam_time", {})
 
-    def register_agent(self, agent: OHTAgent):
-        """
-        Registers an agent for both Spatial Awareness (Obstacles)
-        and Intent Awareness (Merges).
-        Should be called by the Simulation Loop, not the Agent itself.
-        """
-        if agent.current_seg is None: return
+        q = [(0.0, start_node, [])]
+        visited = set()
 
-        # 1. Spatial Registration (Existing)
-        if agent.current_seg not in self.registry:
-            self.registry[agent.current_seg] = []
-        self.registry[agent.current_seg].append(agent)
-       
-        # 2. Intent Registration
-        # Identify which Merge Zones this agent is currently influencing
-        zones = agent.mgr.get_zones_for_segment(agent.current_seg)
-       
-        for merge_node in zones:
-            # CALCULATE DISTANCE ONCE HERE
-            # This captures the agent's exact state at the start of the frame.
-            dist_to_node = agent.calc_dist_to_node(merge_node)
-           
-            # If the agent actually has a path to this node:
-            if dist_to_node is not None:
-                if merge_node not in self.zone_registry:
-                    self.zone_registry[merge_node] = []
-               
-                # Store tuple: (Agent, Snapshot_Distance)
-                self.zone_registry[merge_node].append((agent, dist_to_node))
+        while q:
+            cost, curr, path = heapq.heappop(q)
+            if curr in visited:
+                continue
+            visited.add(curr)
 
-    def get_agents_on_segment(self, seg_id: int) -> List['OHTAgent']:
-        """
-        Returns list of agents currently occupying the given segment.
-        Returns empty list if segment is clear.
-        """
-        return self.registry.get(seg_id, [])
-   
-    def get_zone_competitors(self, merge_node_id: int) -> List[Tuple['OHTAgent', float]]:
-        """
-        Returns list of (Agent, Distance) tuples for a specific merge node.
-        Used for O(1) priority arbitration.
-        """
-        return self.zone_registry.get(merge_node_id, [])
+            if curr == end_node:
+                return path
 
-    def check_collisions(self, agents: List['OHTAgent']) -> List[Tuple['OHTAgent', 'OHTAgent']]:
-        """
-        Brute-force O(N^2) check for physical overlaps.
-        Returns list of colliding pairs.
-        """
-        collisions = []
-       
-        # Threshold Logic:
-        # Car Length ~1200mm. Center-to-Center contact is ~1200mm.
-        # We set threshold to 1000mm to catch any significant overlap.
-        crash_threshold = 500.0
-       
-        for i in range(len(agents)):
-            for j in range(i + 1, len(agents)):
-                a = agents[i]
-                b = agents[j]
-               
-                # Simple Dist Check (Visual Center)
-                p1 = a.sensor_visuals['Center']['pos']
-                p2 = b.sensor_visuals['Center']['pos']
-                dist = np.linalg.norm(p1 - p2)
-               
-                if dist < crash_threshold:
-                    collisions.append((a, b))
-                    print(f"(!) CRASH DETECTED: {getattr(a, 'ui_id', 'A')} <-> {getattr(b, 'ui_id', 'B')} (Dist: {dist:.1f})")
-                   
-                    # Force Stop (Simulation Referee)
-                    a.state = "ERROR"; a.speed = 0
-                    b.state = "ERROR"; b.speed = 0
-                   
-        return collisions
+            for neighbor, seg_id, weight in map_mgr.graph.get(curr, []):
+                if neighbor not in visited:
+                    # Dynamic cost formula:
+                    # Base distance + 4.0m penalty per active vehicle + 0.2m penalty per accumulated jam second
+                    occ_penalty = occupancy.get(seg_id, 0) * 4.0
+                    jam_penalty = min(20.0, jam_time.get(seg_id, 0.0) * 0.2)
+                    edge_cost = weight + occ_penalty + jam_penalty
+
+                    heapq.heappush(q, (cost + edge_cost, neighbor, path + [seg_id]))
+        return None
+
+# Global Strategy Registry
+PATHFINDING_STRATEGIES: Dict[str, PathfindingStrategy] = {
+    "dijkstra": DijkstraPathfinder(),
+    "congestion_aware": CongestionAwarePathfinder()
+}
+
+def get_pathfinding_strategy(name: str) -> PathfindingStrategy:
+    return PATHFINDING_STRATEGIES.get(name, PATHFINDING_STRATEGIES["dijkstra"])

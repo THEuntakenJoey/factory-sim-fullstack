@@ -1,6 +1,6 @@
 const { useState } = React;
 
-function MachineDesignerTab({ schemas, saveSchemas }) {
+function MachineDesignerTab({ schemas, saveSchemas, recipes = {} }) {
     const [selectedId, setSelectedId] = useState(null);
     const [newId, setNewId] = useState("");
     const [previewPort, setPreviewPort] = useState(null);
@@ -14,6 +14,7 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
                 width: 2, height: 2, ports: [],
                 capacity: 1, process_mode: 'batch', intake_mode: 'continuous',
                 process_time: 5.0, intake_time: 1.0, port_lots_load: 1, port_lots_unload: 1,
+                machine_role: 'normal', generation_interval: 5.0, generation_random: false, generators: [],
                 is_stub: false 
             } 
         };
@@ -130,8 +131,21 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
                             onClick={() => setSelectedId(s.id)}
                             style={{ borderLeft: s.is_stub ? '4px solid #ef4444' : '4px solid transparent' }}
                         >
-                            <span style={{fontWeight: 'bold', fontSize: '14px'}}>{s.id}</span>
-                            <div style={{ display: 'flex', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{fontWeight: 'bold', fontSize: '14px'}}>{s.id}</span>
+                                {s.machine_role && s.machine_role !== 'normal' && (
+                                    <span style={{ 
+                                        fontSize: '10px', 
+                                        fontWeight: 600,
+                                        padding: '1px 6px',
+                                        borderRadius: '3px',
+                                        background: s.machine_role === 'source' ? 'rgba(74, 222, 128, 0.18)' : 'rgba(248, 113, 113, 0.18)',
+                                        color: s.machine_role === 'source' ? '#4ade80' : '#f87171', 
+                                        textTransform: 'uppercase' 
+                                    }}>{s.machine_role}</span>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
                                 {s.is_stub && <span className="badge">STUB</span>}
                                 <span style={{fontSize: '11px', color: '#64748b'}}>{s.ports?.length || 0} Ports</span>
                             </div>
@@ -141,7 +155,7 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
             </div>
 
             {activeSchema ? (
-                <div style={{ display: 'flex', flex: 1 }}>
+                <div style={{ display: 'flex', flex: 1, height: '100%', minWidth: 0, overflow: 'hidden' }}>
                     <div 
                         className="designer-grid-container" 
                         onClick={handleCanvasClick}
@@ -154,13 +168,21 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
                             style={{
                                 width: activeSchema.width * UNIT,
                                 height: activeSchema.height * UNIT,
+                                backgroundColor: activeSchema.machine_role === 'source' ? '#166534' : activeSchema.machine_role === 'sink' ? '#7f1d1d' : '#1e293b',
+                                borderColor: activeSchema.machine_role === 'source' ? '#4ade80' : activeSchema.machine_role === 'sink' ? '#f87171' : '#3b82f6'
                             }}
                         >
                             <div style={{
                                 position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-                                color: '#38bdf8', fontWeight: 'bold', fontSize: '14px', pointerEvents: 'none'
+                                color: '#f8fafc', fontWeight: 'bold', fontSize: '14px', pointerEvents: 'none',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center'
                             }}>
-                                {activeSchema.id}
+                                <span>{activeSchema.id}</span>
+                                {activeSchema.machine_role && activeSchema.machine_role !== 'normal' && (
+                                    <span style={{ fontSize: '11px', color: activeSchema.machine_role === 'source' ? '#4ade80' : '#f87171', textTransform: 'uppercase' }}>
+                                        {activeSchema.machine_role}
+                                    </span>
+                                )}
                             </div>
                         </div>
                         
@@ -192,7 +214,7 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
                         )}
                     </div>
 
-                    <div className="sidebar" style={{ width: '320px', borderLeft: '1px solid #334155', borderRight: 'none' }}>
+                    <div className="sidebar" style={{ width: '380px', flexShrink: 0, borderLeft: '1px solid #334155', borderRight: 'none' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <h3 style={{ margin: 0, color: '#f8fafc' }}>Properties</h3>
                             <button className="action-btn" style={{ background: '#ef4444', padding: '4px 8px' }} onClick={() => handleDelete(activeSchema.id)}>Delete</button>
@@ -252,7 +274,114 @@ function MachineDesignerTab({ schemas, saveSchemas }) {
                             </div>
                         </div>
 
+                        <div className="panel">
+                            <h3>Machine Role</h3>
+                            <div className="form-row">
+                                <span>Role:</span>
+                                <select value={activeSchema.machine_role || 'normal'} onChange={e => updateProp('machine_role', e.target.value)}>
+                                    <option value="normal">Normal</option>
+                                    <option value="source">Source</option>
+                                    <option value="sink">Sink</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {activeSchema.machine_role === 'source' && (
+                            <div className="panel">
+                                <h3>Source Generator</h3>
+                                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '10px', lineHeight: '1.4' }}>
+                                    Spawns cargo containers into empty ports based on the time interval and weighted recipe distribution below.
+                                </div>
+                                <div className="form-row">
+                                    <span title="Interval between container generation attempts">Time Gap (s):</span>
+                                    <input 
+                                        type="number" 
+                                        min="0.1" 
+                                        step="0.1" 
+                                        value={activeSchema.generation_interval || 5.0} 
+                                        onChange={e => updateProp('generation_interval', parseFloat(e.target.value) || 5.0)} 
+                                        style={{ width: '100px' }} 
+                                    />
+                                </div>
+                                <div className="form-row">
+                                    <span title="Add ±50% random variation to the generation interval">Randomized Gap:</span>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: '#cbd5e1' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={!!activeSchema.generation_random} 
+                                            onChange={e => updateProp('generation_random', e.target.checked)} 
+                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                        />
+                                        <span>±50% jitter</span>
+                                    </label>
+                                </div>
+
+                                <div style={{ marginTop: '12px', borderTop: '1px solid #334155', paddingTop: '10px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', padding: '0 4px' }}>
+                                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Spawn Recipe</span>
+                                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: '34px' }}>Ratio (Weight)</span>
+                                    </div>
+
+                                    {(!activeSchema.generators || activeSchema.generators.length === 0) && (
+                                        <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', padding: '6px 4px', textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '4px', marginBottom: '6px' }}>
+                                            No recipe rules added (spawns UNKNOWN)
+                                        </div>
+                                    )}
+
+                                    {(activeSchema.generators || []).map((gen, gIdx) => (
+                                        <div key={gIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.25)', padding: '6px 8px', borderRadius: '6px', marginBottom: '6px', border: '1px solid #334155' }}>
+                                            <select 
+                                                value={gen.recipe_id} 
+                                                onChange={e => {
+                                                    const newGens = [...(activeSchema.generators || [])];
+                                                    newGens[gIdx].recipe_id = e.target.value;
+                                                    updateProp('generators', newGens);
+                                                }}
+                                                style={{ flex: 1, minWidth: 0, fontSize: '13px' }}
+                                            >
+                                                <option value="">Select Recipe...</option>
+                                                {Object.keys(recipes).map(rid => <option key={rid} value={rid}>{rid}</option>)}
+                                            </select>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <input 
+                                                    type="number" 
+                                                    min="0" step="0.1" 
+                                                    value={gen.ratio} 
+                                                    placeholder="1.0"
+                                                    title="Relative spawn ratio/weight"
+                                                    style={{ width: '70px', fontSize: '13px', textAlign: 'center' }}
+                                                    onChange={e => {
+                                                        const newGens = [...(activeSchema.generators || [])];
+                                                        newGens[gIdx].ratio = parseFloat(e.target.value) || 0;
+                                                        updateProp('generators', newGens);
+                                                    }} 
+                                                />
+                                                <button 
+                                                    className="action-btn" 
+                                                    style={{ background: '#ef4444', padding: '5px 8px', fontSize: '11px', lineHeight: 1 }} 
+                                                    title="Remove generator"
+                                                    onClick={() => {
+                                                        const newGens = [...(activeSchema.generators || [])];
+                                                        newGens.splice(gIdx, 1);
+                                                        updateProp('generators', newGens);
+                                                    }}>✕</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <button className="action-btn" style={{ width: '100%', marginTop: '6px', padding: '7px 12px' }} 
+                                        onClick={() => {
+                                            const newGens = [...(activeSchema.generators || []), { recipe_id: '', ratio: 1.0 }];
+                                            updateProp('generators', newGens);
+                                        }}>+ Add Recipe Generator</button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="helper-banner" style={{position: 'static', marginTop: 'auto', flexDirection: 'column'}}>
+                            <span className="helper-item">
+                                <b>Port Colors:</b> <span style={{color: '#4ade80'}}>● Load</span>, <span style={{color: '#ef4444'}}>● Unload</span>, <span style={{color: '#fbbf24'}}>● Both</span>
+                            </span>
+                            <div style={{ height: '1px', background: '#334155', margin: '4px 0' }} />
                             <span className="helper-item"><b>Left Click Canvas:</b> Place Port</span>
                             <span className="helper-item"><b>Left Click Port:</b> Toggle Type</span>
                             <span className="helper-item"><b>Right Click Port:</b> Remove</span>

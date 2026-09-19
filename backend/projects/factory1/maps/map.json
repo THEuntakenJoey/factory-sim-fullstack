@@ -1,0 +1,1497 @@
+{
+  "nodes": {
+    "track_56540_in_0": {
+      "id": "track_56540_in_0",
+      "x": 0.022982756451557895,
+      "y": 0.01917807226468617,
+      "heading": 90,
+      "trackId": "track_56540"
+    },
+    "track_56540_out_0": {
+      "id": "track_56540_out_0",
+      "x": 2.022982756451558,
+      "y": 0.01917807226468629,
+      "heading": 90,
+      "trackId": "track_56540"
+    },
+    "track_62227_in_0": {
+      "id": "track_62227_in_0",
+      "x": 2.022982756451558,
+      "y": 0.01917807226468629,
+      "heading": 90,
+      "trackId": "track_62227"
+    },
+    "track_62227_out_0": {
+      "id": "track_62227_out_0",
+      "x": 2.522982756451558,
+      "y": 0.019178072264686322,
+      "heading": 90,
+      "branch": "straight",
+      "trackId": "track_62227"
+    },
+    "track_62227_out_1": {
+      "id": "track_62227_out_1",
+      "x": 2.522982756451558,
+      "y": 0.5191780722646863,
+      "heading": 0,
+      "branch": "turn",
+      "trackId": "track_62227"
+    },
+    "track_73243_in_0": {
+      "id": "track_73243_in_0",
+      "x": 2.522982756451558,
+      "y": 0.01917807226468632,
+      "heading": 90,
+      "trackId": "track_73243"
+    },
+    "track_73243_out_0": {
+      "id": "track_73243_out_0",
+      "x": 4.022982756451558,
+      "y": 0.01917807226468641,
+      "heading": 90,
+      "trackId": "track_73243"
+    },
+    "track_79939_in_0": {
+      "id": "track_79939_in_0",
+      "x": 4.022982756451558,
+      "y": 0.01917807226468641,
+      "heading": 90,
+      "trackId": "track_79939"
+    },
+    "track_79939_out_0": {
+      "id": "track_79939_out_0",
+      "x": 4.522982756451558,
+      "y": 0.01917807226468644,
+      "heading": 90,
+      "branch": "straight",
+      "trackId": "track_79939"
+    },
+    "track_79939_out_1": {
+      "id": "track_79939_out_1",
+      "x": 4.522982756451558,
+      "y": 0.5191780722646864,
+      "heading": 0,
+      "branch": "turn",
+      "trackId": "track_79939"
+    },
+    "track_83411_in_0": {
+      "id": "track_83411_in_0",
+      "x": 4.522982756451558,
+      "y": 0.01917807226468644,
+      "heading": 90,
+      "trackId": "track_83411"
+    },
+    "track_83411_out_0": {
+      "id": "track_83411_out_0",
+      "x": 6.022982756451558,
+      "y": 0.01917807226468653,
+      "heading": 90,
+      "trackId": "track_83411"
+    },
+    "track_86284_in_0": {
+      "id": "track_86284_in_0",
+      "x": 6.022982756451558,
+      "y": 0.019178072264686527,
+      "heading": 90,
+      "trackId": "track_86284"
+    },
+    "track_86284_out_0": {
+      "id": "track_86284_out_0",
+      "x": 6.522982756451558,
+      "y": 0.019178072264686558,
+      "heading": 90,
+      "branch": "straight",
+      "trackId": "track_86284"
+    },
+    "track_86284_out_1": {
+      "id": "track_86284_out_1",
+      "x": 6.522982756451558,
+      "y": 0.5191780722646865,
+      "heading": 0,
+      "branch": "turn",
+      "trackId": "track_86284"
+    },
+    "track_02826_in_0": {
+      "id": "track_02826_in_0",
+      "x": 2.522982756451558,
+      "y": 0.5191780722646863,
+      "heading": 0,
+      "trackId": "track_02826"
+    },
+    "track_02826_out_0": {
+      "id": "track_02826_out_0",
+      "x": 2.522982756451558,
+      "y": 3.5191780722646864,
+      "heading": 0,
+      "trackId": "track_02826"
+    },
+    "track_03699_in_0": {
+      "id": "track_03699_in_0",
+      "x": 4.522982756451558,
+      "y": 0.5191780722646864,
+      "heading": 0,
+      "trackId": "track_03699"
+    },
+    "track_03699_out_0": {
+      "id": "track_03699_out_0",
+      "x": 4.522982756451558,
+      "y": 3.5191780722646864,
+      "heading": 0,
+      "trackId": "track_03699"
+    },
+    "track_04586_in_0": {
+      "id": "track_04586_in_0",
+      "x": 6.522982756451558,
+      "y": 0.5191780722646865,
+      "heading": 0,
+      "trackId": "track_04586"
+    },
+    "track_04586_out_0": {
+      "id": "track_04586_out_0",
+      "x": 6.522982756451558,
+      "y": 3.5191780722646864,
+      "heading": 0,
+      "trackId": "track_04586"
+    },
+    "track_07818_in_0": {
+      "id": "track_07818_in_0",
+      "x": 2.522982756451558,
+      "y": 3.5191780722646864,
+      "heading": 0,
+      "trackId": "track_07818"
+    },
+    "track_07818_out_0": {
+      "id": "track_07818_out_0",
+      "x": 3.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_07818"
+    },
+    "track_16578_in_0": {
+      "id": "track_16578_in_0",
+      "x": 4.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "branch": "straight",
+      "trackId": "track_16578"
+    },
+    "track_16578_in_1": {
+      "id": "track_16578_in_1",
+      "x": 4.522982756451558,
+      "y": 3.519178072264687,
+      "heading": 0,
+      "branch": "turn",
+      "trackId": "track_16578"
+    },
+    "track_16578_out_0": {
+      "id": "track_16578_out_0",
+      "x": 5.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_16578"
+    },
+    "track_18179_in_0": {
+      "id": "track_18179_in_0",
+      "x": 6.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "branch": "straight",
+      "trackId": "track_18179"
+    },
+    "track_18179_in_1": {
+      "id": "track_18179_in_1",
+      "x": 6.522982756451558,
+      "y": 3.519178072264687,
+      "heading": 0,
+      "branch": "turn",
+      "trackId": "track_18179"
+    },
+    "track_18179_out_0": {
+      "id": "track_18179_out_0",
+      "x": 7.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_18179"
+    },
+    "track_25051_in_0": {
+      "id": "track_25051_in_0",
+      "x": 3.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_25051"
+    },
+    "track_25051_out_0": {
+      "id": "track_25051_out_0",
+      "x": 4.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_25051"
+    },
+    "track_26170_in_0": {
+      "id": "track_26170_in_0",
+      "x": 5.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_26170"
+    },
+    "track_26170_out_0": {
+      "id": "track_26170_out_0",
+      "x": 6.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_26170"
+    },
+    "track_37419_in_0": {
+      "id": "track_37419_in_0",
+      "x": 7.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_37419"
+    },
+    "track_37419_out_0": {
+      "id": "track_37419_out_0",
+      "x": 8.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_37419"
+    },
+    "track_39818_in_0": {
+      "id": "track_39818_in_0",
+      "x": 8.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "trackId": "track_39818"
+    },
+    "track_39818_out_0": {
+      "id": "track_39818_out_0",
+      "x": 9.022982756451558,
+      "y": 3.519178072264687,
+      "heading": 180,
+      "trackId": "track_39818"
+    },
+    "track_44834_in_0": {
+      "id": "track_44834_in_0",
+      "x": 6.522982756451558,
+      "y": 0.019178072264686555,
+      "heading": 90,
+      "trackId": "track_44834"
+    },
+    "track_44834_out_0": {
+      "id": "track_44834_out_0",
+      "x": 8.522982756451558,
+      "y": 0.019178072264686676,
+      "heading": 90,
+      "trackId": "track_44834"
+    },
+    "track_68826_in_0": {
+      "id": "track_68826_in_0",
+      "x": 9.022982756451558,
+      "y": 3.519178072264687,
+      "heading": 180,
+      "trackId": "track_68826"
+    },
+    "track_68826_out_0": {
+      "id": "track_68826_out_0",
+      "x": 9.022982756451558,
+      "y": 0.01917807226468682,
+      "heading": 180,
+      "trackId": "track_68826"
+    },
+    "track_83026_in_0": {
+      "id": "track_83026_in_0",
+      "x": 9.022982756451558,
+      "y": 0.019178072264686777,
+      "heading": 180,
+      "branch": "straight",
+      "trackId": "track_83026"
+    },
+    "track_83026_in_1": {
+      "id": "track_83026_in_1",
+      "x": 8.522982756451558,
+      "y": 0.019178072264686687,
+      "heading": 90,
+      "branch": "turn",
+      "trackId": "track_83026"
+    },
+    "track_83026_out_0": {
+      "id": "track_83026_out_0",
+      "x": 9.022982756451558,
+      "y": -0.48082192773531324,
+      "heading": 180,
+      "trackId": "track_83026"
+    },
+    "track_43275_in_0": {
+      "id": "track_43275_in_0",
+      "x": 9.022982756451558,
+      "y": -0.48082192773531324,
+      "heading": 180,
+      "trackId": "track_43275"
+    },
+    "track_43275_out_0": {
+      "id": "track_43275_out_0",
+      "x": 9.022982756451558,
+      "y": -1.9808219277353132,
+      "heading": 180,
+      "trackId": "track_43275"
+    },
+    "track_65027_in_0": {
+      "id": "track_65027_in_0",
+      "x": 9.022982756451558,
+      "y": -1.9808219277353132,
+      "heading": 180,
+      "trackId": "track_65027"
+    },
+    "track_65027_out_0": {
+      "id": "track_65027_out_0",
+      "x": 9.022982756451558,
+      "y": -2.480821927735313,
+      "heading": 180,
+      "branch": "straight",
+      "trackId": "track_65027"
+    },
+    "track_65027_out_1": {
+      "id": "track_65027_out_1",
+      "x": 8.522982756451558,
+      "y": -2.480821927735313,
+      "heading": 270,
+      "branch": "turn",
+      "trackId": "track_65027"
+    },
+    "track_74332_in_0": {
+      "id": "track_74332_in_0",
+      "x": 9.022982756451558,
+      "y": -2.480821927735313,
+      "heading": 180,
+      "trackId": "track_74332"
+    },
+    "track_74332_out_0": {
+      "id": "track_74332_out_0",
+      "x": 9.022982756451558,
+      "y": -3.480821927735313,
+      "heading": 180,
+      "trackId": "track_74332"
+    },
+    "track_76116_in_0": {
+      "id": "track_76116_in_0",
+      "x": 9.022982756451558,
+      "y": -3.480821927735313,
+      "heading": 180,
+      "trackId": "track_76116"
+    },
+    "track_76116_out_0": {
+      "id": "track_76116_out_0",
+      "x": 9.022982756451558,
+      "y": -3.980821927735313,
+      "heading": 180,
+      "branch": "straight",
+      "trackId": "track_76116"
+    },
+    "track_76116_out_1": {
+      "id": "track_76116_out_1",
+      "x": 8.522982756451558,
+      "y": -3.980821927735313,
+      "heading": 270,
+      "branch": "turn",
+      "trackId": "track_76116"
+    },
+    "track_78236_in_0": {
+      "id": "track_78236_in_0",
+      "x": 9.022982756451558,
+      "y": -3.980821927735313,
+      "heading": 180,
+      "trackId": "track_78236"
+    },
+    "track_78236_out_0": {
+      "id": "track_78236_out_0",
+      "x": 9.022982756451558,
+      "y": -4.980821927735313,
+      "heading": 180,
+      "trackId": "track_78236"
+    },
+    "track_99755_in_0": {
+      "id": "track_99755_in_0",
+      "x": 9.022982756451558,
+      "y": -4.980821927735313,
+      "heading": 180,
+      "trackId": "track_99755"
+    },
+    "track_99755_out_0": {
+      "id": "track_99755_out_0",
+      "x": 8.522982756451558,
+      "y": -5.480821927735313,
+      "heading": 270,
+      "trackId": "track_99755"
+    },
+    "track_32139_in_0": {
+      "id": "track_32139_in_0",
+      "x": 8.522982756451558,
+      "y": -2.480821927735313,
+      "heading": 270,
+      "trackId": "track_32139"
+    },
+    "track_32139_out_0": {
+      "id": "track_32139_out_0",
+      "x": 5.522982756451558,
+      "y": -2.4808219277353136,
+      "heading": 270,
+      "trackId": "track_32139"
+    },
+    "track_37165_in_0": {
+      "id": "track_37165_in_0",
+      "x": 8.522982756451558,
+      "y": -3.980821927735313,
+      "heading": 270,
+      "trackId": "track_37165"
+    },
+    "track_37165_out_0": {
+      "id": "track_37165_out_0",
+      "x": 5.522982756451558,
+      "y": -3.9808219277353136,
+      "heading": 270,
+      "trackId": "track_37165"
+    },
+    "track_38402_in_0": {
+      "id": "track_38402_in_0",
+      "x": 8.522982756451558,
+      "y": -5.480821927735313,
+      "heading": 270,
+      "trackId": "track_38402"
+    },
+    "track_38402_out_0": {
+      "id": "track_38402_out_0",
+      "x": 5.522982756451558,
+      "y": -5.480821927735314,
+      "heading": 270,
+      "trackId": "track_38402"
+    },
+    "track_79115_in_0": {
+      "id": "track_79115_in_0",
+      "x": 5.022982756451558,
+      "y": -3.9808219277353136,
+      "heading": 180,
+      "branch": "straight",
+      "trackId": "track_79115"
+    },
+    "track_79115_in_1": {
+      "id": "track_79115_in_1",
+      "x": 5.522982756451558,
+      "y": -3.9808219277353136,
+      "heading": 270,
+      "branch": "turn",
+      "trackId": "track_79115"
+    },
+    "track_79115_out_0": {
+      "id": "track_79115_out_0",
+      "x": 5.022982756451558,
+      "y": -4.480821927735313,
+      "heading": 180,
+      "trackId": "track_79115"
+    },
+    "track_84531_in_0": {
+      "id": "track_84531_in_0",
+      "x": 5.022982756451558,
+      "y": -5.480821927735314,
+      "heading": 180,
+      "branch": "straight",
+      "trackId": "track_84531"
+    },
+    "track_84531_in_1": {
+      "id": "track_84531_in_1",
+      "x": 5.522982756451558,
+      "y": -5.480821927735314,
+      "heading": 270,
+      "branch": "turn",
+      "trackId": "track_84531"
+    },
+    "track_84531_out_0": {
+      "id": "track_84531_out_0",
+      "x": 5.022982756451558,
+      "y": -5.980821927735314,
+      "heading": 180,
+      "trackId": "track_84531"
+    },
+    "track_87965_in_0": {
+      "id": "track_87965_in_0",
+      "x": 5.522982756451558,
+      "y": -2.4808219277353136,
+      "heading": 270,
+      "trackId": "track_87965"
+    },
+    "track_87965_out_0": {
+      "id": "track_87965_out_0",
+      "x": 5.022982756451558,
+      "y": -2.9808219277353136,
+      "heading": 180,
+      "trackId": "track_87965"
+    },
+    "track_01555_in_0": {
+      "id": "track_01555_in_0",
+      "x": 5.022982756451558,
+      "y": -2.9808219277353136,
+      "heading": 180,
+      "trackId": "track_01555"
+    },
+    "track_01555_out_0": {
+      "id": "track_01555_out_0",
+      "x": 5.022982756451558,
+      "y": -3.9808219277353136,
+      "heading": 180,
+      "trackId": "track_01555"
+    },
+    "track_03155_in_0": {
+      "id": "track_03155_in_0",
+      "x": 5.022982756451558,
+      "y": -4.480821927735313,
+      "heading": 180,
+      "trackId": "track_03155"
+    },
+    "track_03155_out_0": {
+      "id": "track_03155_out_0",
+      "x": 5.022982756451558,
+      "y": -5.480821927735313,
+      "heading": 180,
+      "trackId": "track_03155"
+    },
+    "track_07451_in_0": {
+      "id": "track_07451_in_0",
+      "x": 5.022982756451558,
+      "y": -5.980821927735314,
+      "heading": 180,
+      "trackId": "track_07451"
+    },
+    "track_07451_out_0": {
+      "id": "track_07451_out_0",
+      "x": 4.522982756451558,
+      "y": -6.480821927735314,
+      "heading": 270,
+      "trackId": "track_07451"
+    },
+    "track_46734_in_0": {
+      "id": "track_46734_in_0",
+      "x": 4.522982756451558,
+      "y": -6.480821927735314,
+      "heading": 270,
+      "trackId": "track_46734"
+    },
+    "track_46734_out_0": {
+      "id": "track_46734_out_0",
+      "x": 0.022982756451558117,
+      "y": -6.480821927735315,
+      "heading": 270,
+      "trackId": "track_46734"
+    },
+    "track_70219_in_0": {
+      "id": "track_70219_in_0",
+      "x": 0.022982756451558117,
+      "y": -6.480821927735315,
+      "heading": 270,
+      "trackId": "track_70219"
+    },
+    "track_70219_out_0": {
+      "id": "track_70219_out_0",
+      "x": -0.477017243548442,
+      "y": -5.980821927735315,
+      "heading": 0,
+      "trackId": "track_70219"
+    },
+    "track_73219_in_0": {
+      "id": "track_73219_in_0",
+      "x": -0.477017243548442,
+      "y": -5.980821927735315,
+      "heading": 0,
+      "trackId": "track_73219"
+    },
+    "track_73219_out_0": {
+      "id": "track_73219_out_0",
+      "x": -0.477017243548442,
+      "y": -0.48082192773531496,
+      "heading": 0,
+      "trackId": "track_73219"
+    },
+    "track_80491_in_0": {
+      "id": "track_80491_in_0",
+      "x": -0.477017243548442,
+      "y": -0.48082192773531496,
+      "heading": 0,
+      "trackId": "track_80491"
+    },
+    "track_80491_out_0": {
+      "id": "track_80491_out_0",
+      "x": 0.022982756451558006,
+      "y": 0.019178072264685098,
+      "heading": 90,
+      "trackId": "track_80491"
+    }
+  },
+  "tracks": [
+    {
+      "id": "track_56540",
+      "type": "STRAIGHT",
+      "x": 0.022982756451557895,
+      "y": 0.01917807226468617,
+      "heading": 90,
+      "length": 2,
+      "radius": 0.5,
+      "inputs": [
+        "track_56540_in_0"
+      ],
+      "outputs": [
+        "track_56540_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_62227",
+      "type": "DIVERGE_L",
+      "x": 2.022982756451558,
+      "y": 0.01917807226468629,
+      "heading": 90,
+      "length": 4,
+      "radius": 0.5,
+      "inputs": [
+        "track_62227_in_0"
+      ],
+      "outputs": [
+        "track_62227_out_0",
+        "track_62227_out_1"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_73243",
+      "type": "STRAIGHT",
+      "x": 2.522982756451558,
+      "y": 0.01917807226468632,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_73243_in_0"
+      ],
+      "outputs": [
+        "track_73243_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_79939",
+      "type": "DIVERGE_L",
+      "x": 4.022982756451558,
+      "y": 0.01917807226468641,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_79939_in_0"
+      ],
+      "outputs": [
+        "track_79939_out_0",
+        "track_79939_out_1"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_83411",
+      "type": "STRAIGHT",
+      "x": 4.522982756451558,
+      "y": 0.01917807226468644,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_83411_in_0"
+      ],
+      "outputs": [
+        "track_83411_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_86284",
+      "type": "DIVERGE_L",
+      "x": 6.022982756451558,
+      "y": 0.019178072264686527,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_86284_in_0"
+      ],
+      "outputs": [
+        "track_86284_out_0",
+        "track_86284_out_1"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_02826",
+      "type": "STRAIGHT",
+      "x": 2.522982756451558,
+      "y": 0.5191780722646863,
+      "heading": 0,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_02826_in_0"
+      ],
+      "outputs": [
+        "track_02826_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_03699",
+      "type": "STRAIGHT",
+      "x": 4.522982756451558,
+      "y": 0.5191780722646864,
+      "heading": 0,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_03699_in_0"
+      ],
+      "outputs": [
+        "track_03699_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_04586",
+      "type": "STRAIGHT",
+      "x": 6.522982756451558,
+      "y": 0.5191780722646865,
+      "heading": 0,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_04586_in_0"
+      ],
+      "outputs": [
+        "track_04586_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_07818",
+      "type": "TURN_R",
+      "x": 2.522982756451558,
+      "y": 3.5191780722646864,
+      "heading": 0,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_07818_in_0"
+      ],
+      "outputs": [
+        "track_07818_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_16578",
+      "type": "MERGE_R",
+      "x": 4.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "length": 3,
+      "radius": 0.5,
+      "semaphore": "auto",
+      "inputs": [
+        "track_16578_in_0",
+        "track_16578_in_1"
+      ],
+      "outputs": [
+        "track_16578_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_18179",
+      "type": "MERGE_R",
+      "x": 6.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "length": 3,
+      "radius": 0.5,
+      "semaphore": "auto",
+      "inputs": [
+        "track_18179_in_0",
+        "track_18179_in_1"
+      ],
+      "outputs": [
+        "track_18179_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_25051",
+      "type": "STRAIGHT",
+      "x": 3.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_25051_in_0"
+      ],
+      "outputs": [
+        "track_25051_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_26170",
+      "type": "STRAIGHT",
+      "x": 5.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_26170_in_0"
+      ],
+      "outputs": [
+        "track_26170_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_37419",
+      "type": "STRAIGHT",
+      "x": 7.022982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_37419_in_0"
+      ],
+      "outputs": [
+        "track_37419_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_39818",
+      "type": "TURN_R",
+      "x": 8.522982756451558,
+      "y": 4.019178072264687,
+      "heading": 90,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_39818_in_0"
+      ],
+      "outputs": [
+        "track_39818_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_44834",
+      "type": "STRAIGHT",
+      "x": 6.522982756451558,
+      "y": 0.019178072264686555,
+      "heading": 90,
+      "length": 2,
+      "radius": 0.5,
+      "inputs": [
+        "track_44834_in_0"
+      ],
+      "outputs": [
+        "track_44834_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_68826",
+      "type": "STRAIGHT",
+      "x": 9.022982756451558,
+      "y": 3.519178072264687,
+      "heading": 180,
+      "length": 3.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_68826_in_0"
+      ],
+      "outputs": [
+        "track_68826_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_83026",
+      "type": "MERGE_R",
+      "x": 9.022982756451558,
+      "y": 0.019178072264686777,
+      "heading": 180,
+      "length": 3,
+      "radius": 0.5,
+      "semaphore": "auto",
+      "inputs": [
+        "track_83026_in_0",
+        "track_83026_in_1"
+      ],
+      "outputs": [
+        "track_83026_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_43275",
+      "type": "STRAIGHT",
+      "x": 9.022982756451558,
+      "y": -0.48082192773531324,
+      "heading": 180,
+      "length": 1.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_43275_in_0"
+      ],
+      "outputs": [
+        "track_43275_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_65027",
+      "type": "DIVERGE_R",
+      "x": 9.022982756451558,
+      "y": -1.9808219277353132,
+      "heading": 180,
+      "length": null,
+      "radius": 0.5,
+      "inputs": [
+        "track_65027_in_0"
+      ],
+      "outputs": [
+        "track_65027_out_0",
+        "track_65027_out_1"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_74332",
+      "type": "STRAIGHT",
+      "x": 9.022982756451558,
+      "y": -2.480821927735313,
+      "heading": 180,
+      "length": 1,
+      "radius": 0.5,
+      "inputs": [
+        "track_74332_in_0"
+      ],
+      "outputs": [
+        "track_74332_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_76116",
+      "type": "DIVERGE_R",
+      "x": 9.022982756451558,
+      "y": -3.480821927735313,
+      "heading": 180,
+      "length": 1,
+      "radius": 0.5,
+      "inputs": [
+        "track_76116_in_0"
+      ],
+      "outputs": [
+        "track_76116_out_0",
+        "track_76116_out_1"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_78236",
+      "type": "STRAIGHT",
+      "x": 9.022982756451558,
+      "y": -3.980821927735313,
+      "heading": 180,
+      "length": 1,
+      "radius": 0.5,
+      "inputs": [
+        "track_78236_in_0"
+      ],
+      "outputs": [
+        "track_78236_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_99755",
+      "type": "TURN_R",
+      "x": 9.022982756451558,
+      "y": -4.980821927735313,
+      "heading": 180,
+      "length": 1,
+      "radius": 0.5,
+      "inputs": [
+        "track_99755_in_0"
+      ],
+      "outputs": [
+        "track_99755_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_32139",
+      "type": "STRAIGHT",
+      "x": 8.522982756451558,
+      "y": -2.480821927735313,
+      "heading": 270,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_32139_in_0"
+      ],
+      "outputs": [
+        "track_32139_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_37165",
+      "type": "STRAIGHT",
+      "x": 8.522982756451558,
+      "y": -3.980821927735313,
+      "heading": 270,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_37165_in_0"
+      ],
+      "outputs": [
+        "track_37165_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_38402",
+      "type": "STRAIGHT",
+      "x": 8.522982756451558,
+      "y": -5.480821927735313,
+      "heading": 270,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_38402_in_0"
+      ],
+      "outputs": [
+        "track_38402_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_79115",
+      "type": "MERGE_L",
+      "x": 5.022982756451558,
+      "y": -3.9808219277353136,
+      "heading": 180,
+      "length": 3,
+      "radius": 0.5,
+      "semaphore": "auto",
+      "inputs": [
+        "track_79115_in_0",
+        "track_79115_in_1"
+      ],
+      "outputs": [
+        "track_79115_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_84531",
+      "type": "MERGE_L",
+      "x": 5.022982756451558,
+      "y": -5.480821927735314,
+      "heading": 180,
+      "length": 3,
+      "radius": 0.5,
+      "semaphore": "auto",
+      "inputs": [
+        "track_84531_in_0",
+        "track_84531_in_1"
+      ],
+      "outputs": [
+        "track_84531_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_87965",
+      "type": "TURN_L",
+      "x": 5.522982756451558,
+      "y": -2.4808219277353136,
+      "heading": 270,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_87965_in_0"
+      ],
+      "outputs": [
+        "track_87965_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_01555",
+      "type": "STRAIGHT",
+      "x": 5.022982756451558,
+      "y": -2.9808219277353136,
+      "heading": 180,
+      "length": 1,
+      "radius": 0.5,
+      "inputs": [
+        "track_01555_in_0"
+      ],
+      "outputs": [
+        "track_01555_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_03155",
+      "type": "STRAIGHT",
+      "x": 5.022982756451558,
+      "y": -4.480821927735313,
+      "heading": 180,
+      "length": 1,
+      "radius": 0.5,
+      "inputs": [
+        "track_03155_in_0"
+      ],
+      "outputs": [
+        "track_03155_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_07451",
+      "type": "TURN_R",
+      "x": 5.022982756451558,
+      "y": -5.980821927735314,
+      "heading": 180,
+      "length": 1,
+      "radius": 0.5,
+      "inputs": [
+        "track_07451_in_0"
+      ],
+      "outputs": [
+        "track_07451_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_46734",
+      "type": "STRAIGHT",
+      "x": 4.522982756451558,
+      "y": -6.480821927735314,
+      "heading": 270,
+      "length": 4.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_46734_in_0"
+      ],
+      "outputs": [
+        "track_46734_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_70219",
+      "type": "TURN_R",
+      "x": 0.022982756451558117,
+      "y": -6.480821927735315,
+      "heading": 270,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_70219_in_0"
+      ],
+      "outputs": [
+        "track_70219_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_73219",
+      "type": "STRAIGHT",
+      "x": -0.477017243548442,
+      "y": -5.980821927735315,
+      "heading": 0,
+      "length": 5.5,
+      "radius": 0.5,
+      "inputs": [
+        "track_73219_in_0"
+      ],
+      "outputs": [
+        "track_73219_out_0"
+      ],
+      "status": null
+    },
+    {
+      "id": "track_80491",
+      "type": "TURN_R",
+      "x": -0.477017243548442,
+      "y": -0.48082192773531496,
+      "heading": 0,
+      "length": 3,
+      "radius": 0.5,
+      "inputs": [
+        "track_80491_in_0"
+      ],
+      "outputs": [
+        "track_80491_out_0"
+      ],
+      "status": null
+    }
+  ],
+  "machines": [
+    {
+      "id": "mach_99316",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "3",
+      "x": 1.0638706108372946,
+      "y": 0.019178072264686236,
+      "heading": 0,
+      "ports": [
+        {
+          "schema_port_id": "p1789308049373",
+          "trackId": "track_56540",
+          "offset": 1.0408878543857367
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789308049373",
+          "trackId": "track_56540",
+          "offset": 1.0408878543857367
+        }
+      ]
+    },
+    {
+      "id": "mach_05285",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "4",
+      "x": 1.5923190628123178,
+      "y": -6.480821927735315,
+      "heading": 0,
+      "ports": [
+        {
+          "schema_port_id": "p1789308065141",
+          "trackId": "track_46734",
+          "offset": 2.9306636936392403
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789308065141",
+          "trackId": "track_46734",
+          "offset": 2.9306636936392403
+        }
+      ]
+    },
+    {
+      "id": "mach_15954",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "1",
+      "x": 2.522982756451558,
+      "y": 2.032006866009466,
+      "heading": 270,
+      "ports": [
+        {
+          "schema_port_id": "p1789478563938",
+          "trackId": "track_02826",
+          "offset": 0.7628287937447796
+        },
+        {
+          "schema_port_id": "p1789478565609",
+          "trackId": "track_02826",
+          "offset": 2.2628287937447795
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789478563938",
+          "trackId": "track_02826",
+          "offset": 0.7628287937447796
+        },
+        {
+          "schema_port_id": "p1789478565609",
+          "trackId": "track_02826",
+          "offset": 2.2628287937447795
+        }
+      ]
+    },
+    {
+      "id": "mach_21443",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "1",
+      "x": 4.522982756451558,
+      "y": 2.032006866009466,
+      "heading": 270,
+      "ports": [
+        {
+          "schema_port_id": "p1789478563938",
+          "trackId": "track_03699",
+          "offset": 0.7628287937447795
+        },
+        {
+          "schema_port_id": "p1789478565609",
+          "trackId": "track_03699",
+          "offset": 2.2628287937447795
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789478563938",
+          "trackId": "track_03699",
+          "offset": 0.7628287937447795
+        },
+        {
+          "schema_port_id": "p1789478565609",
+          "trackId": "track_03699",
+          "offset": 2.2628287937447795
+        }
+      ]
+    },
+    {
+      "id": "mach_29083",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "1",
+      "x": 6.522982756451558,
+      "y": 2.005584443410715,
+      "heading": 270,
+      "ports": [
+        {
+          "schema_port_id": "p1789478563938",
+          "trackId": "track_04586",
+          "offset": 0.7364063711460286
+        },
+        {
+          "schema_port_id": "p1789478565609",
+          "trackId": "track_04586",
+          "offset": 2.2364063711460287
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789478563938",
+          "trackId": "track_04586",
+          "offset": 0.7364063711460286
+        },
+        {
+          "schema_port_id": "p1789478565609",
+          "trackId": "track_04586",
+          "offset": 2.2364063711460287
+        }
+      ]
+    },
+    {
+      "id": "mach_40948",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "2",
+      "x": 7.088182963352564,
+      "y": -2.480821927735313,
+      "heading": 180,
+      "ports": [
+        {
+          "schema_port_id": "p1789308120829",
+          "trackId": "track_32139",
+          "offset": 0.9347997930989944
+        },
+        {
+          "schema_port_id": "p1789308121605",
+          "trackId": "track_32139",
+          "offset": 1.9347997930989944
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789308120829",
+          "trackId": "track_32139",
+          "offset": 0.9347997930989944
+        },
+        {
+          "schema_port_id": "p1789308121605",
+          "trackId": "track_32139",
+          "offset": 1.9347997930989944
+        }
+      ]
+    },
+    {
+      "id": "mach_47732",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "2",
+      "x": 7.088182963352564,
+      "y": -3.980821927735313,
+      "heading": 180,
+      "ports": [
+        {
+          "schema_port_id": "p1789308120829",
+          "trackId": "track_37165",
+          "offset": 0.9347997930989944
+        },
+        {
+          "schema_port_id": "p1789308121605",
+          "trackId": "track_37165",
+          "offset": 1.9347997930989944
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789308120829",
+          "trackId": "track_37165",
+          "offset": 0.9347997930989944
+        },
+        {
+          "schema_port_id": "p1789308121605",
+          "trackId": "track_37165",
+          "offset": 1.9347997930989944
+        }
+      ]
+    },
+    {
+      "id": "mach_50739",
+      "type": "MACHINE",
+      "machine_type": "PROCESS",
+      "schema_id": "2",
+      "x": 7.088182963352564,
+      "y": -5.480821927735313,
+      "heading": 180,
+      "ports": [
+        {
+          "schema_port_id": "p1789308120829",
+          "trackId": "track_38402",
+          "offset": 0.9347997930989944
+        },
+        {
+          "schema_port_id": "p1789308121605",
+          "trackId": "track_38402",
+          "offset": 1.9347997930989944
+        }
+      ],
+      "connected_ports": [
+        {
+          "schema_port_id": "p1789308120829",
+          "trackId": "track_38402",
+          "offset": 0.9347997930989944
+        },
+        {
+          "schema_port_id": "p1789308121605",
+          "trackId": "track_38402",
+          "offset": 1.9347997930989944
+        }
+      ]
+    }
+  ]
+}

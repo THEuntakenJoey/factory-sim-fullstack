@@ -22,6 +22,16 @@ window.Builder = {
     canvas: null,
     ctx: null,
     onStateChange: null,
+    onChange: null,
+    isDirty: false,
+    _loading: false,
+
+    markDirty: function() {
+        this.isDirty = true;
+        if (typeof this.onChange === 'function') {
+            this.onChange();
+        }
+    },
 
     init: function(canvas, onStateChange) {
         this.canvas = canvas;
@@ -59,6 +69,27 @@ window.Builder = {
         this._notify();
     },
 
+    rotateSelected: function() {
+        if (this.selectedTrackId) {
+            const tr = this.tracks.find(t => t.id === this.selectedTrackId);
+            if (tr) {
+                tr.heading = (tr.heading + 90) % 360;
+                this._recomputeAllNodes();
+                this._updateAllMachinePorts();
+                this.markDirty();
+                this._notify();
+            }
+        } else if (this.selectedMachineId) {
+            const m = this.machines.find(mach => mach.id === this.selectedMachineId);
+            if (m) {
+                m.heading = ((m.heading || 0) + 90) % 360;
+                this._updateMachinePorts(m);
+                this.markDirty();
+                this._notify();
+            }
+        }
+    },
+
     setStraightLength: function(trackId, newLength) {
         const len = Math.max(0.2, Math.min(20.0, parseFloat(newLength) || 1.0));
         const tr = this.tracks.find(t => t.id === trackId);
@@ -66,6 +97,7 @@ window.Builder = {
             tr.length = len;
             this._recomputeAllNodes();
             this._notify();
+            this.markDirty();
         }
     },
 
@@ -78,12 +110,14 @@ window.Builder = {
         });
         this._recomputeAllNodes();
         this._notify();
+        this.markDirty();
     },
 
     deleteMachine: function(machineId) {
         this.machines = this.machines.filter(m => m.id !== machineId);
         if (this.selectedMachineId === machineId) this.selectedMachineId = null;
         this._notify();
+        this.markDirty();
     },
 
     clear: function() {
@@ -93,6 +127,9 @@ window.Builder = {
         this.selectedTrackId = null;
         this.selectedMachineId = null;
         this._notify();
+        if (!this._loading) {
+            this.markDirty();
+        }
     },
 
     _notify: function() {
@@ -219,8 +256,8 @@ window.Builder = {
         });
     },
 
-    _checkSnap: function(type, rawX, rawY, heading) {
-        const previewGeo = this.computeGeometry(type, rawX, rawY, heading, this.straightLength);
+    _checkSnap: function(type, rawX, rawY, heading, straightLength, excludeTrackId = null) {
+        const previewGeo = this.computeGeometry(type, rawX, rawY, heading, straightLength || this.straightLength);
         const snapThreshold = 0.35;
 
         // Check if any preview INPUT snaps to existing OUTPUT (Append)
@@ -228,6 +265,7 @@ window.Builder = {
             for (const nid in this.nodes) {
                 if (!nid.includes("_out")) continue;
                 const eOut = this.nodes[nid];
+                if (excludeTrackId && eOut.trackId === excludeTrackId) continue;
                 if (Math.hypot(eOut.x - pIn.x, eOut.y - pIn.y) < snapThreshold) {
                     if (this._normAng(eOut.heading) === this._normAng(pIn.heading)) {
                         return { snapped: true, x: rawX + (eOut.x - pIn.x), y: rawY + (eOut.y - pIn.y), targetNode: eOut };
@@ -241,6 +279,7 @@ window.Builder = {
             for (const nid in this.nodes) {
                 if (!nid.includes("_in")) continue;
                 const eIn = this.nodes[nid];
+                if (excludeTrackId && eIn.trackId === excludeTrackId) continue;
                 if (Math.hypot(eIn.x - pOut.x, eIn.y - pOut.y) < snapThreshold) {
                     if (this._normAng(eIn.heading) === this._normAng(pOut.heading)) {
                         return { snapped: true, x: rawX + (eIn.x - pOut.x), y: rawY + (eIn.y - pOut.y), targetNode: eIn };
@@ -252,6 +291,256 @@ window.Builder = {
         return { snapped: false, x: rawX, y: rawY, targetNode: null };
     },
 
+    _checkMachineSnap: function(schema, rawX, rawY, heading) {
+        if (!schema) return { snapped: false, x: rawX, y: rawY };
+        const cos = Math.cos(heading * Math.PI / 180);
+        const sin = Math.sin(heading * Math.PI / 180);
+        let snappedPos = { x: rawX, y: rawY };
+        let snapped = false;
+
+        for (let sp of (schema.ports || [])) {
+            const rx = sp.rel_x * cos + sp.rel_y * sin;
+            const ry = -sp.rel_x * sin + sp.rel_y * cos; 
+            const pwx = rawX + rx;
+            const pwy = rawY + ry;
+            
+            const track = this._getTrackAtExact(pwx, pwy, 1.0);
+            if (track && track.type === "STRAIGHT") {
+                const d_fwd = this._dir(track.heading);
+                const vX = pwx - track.x;
+                const vY = pwy - track.y;
+                const t = (vX * d_fwd.x + vY * d_fwd.y);
+                const nx = track.x + t * d_fwd.x;
+                const ny = track.y + t * d_fwd.y;
+                
+                snappedPos.x += (nx - pwx);
+                snappedPos.y += (ny - pwy);
+                snapped = true;
+                break;
+            }
+        }
+        return { snapped, x: snappedPos.x, y: snappedPos.y };
+    },
+
+    _updateMachinePorts: function(m) {
+        const schema = this.projectSchemas[m.schema_id] || {};
+        const cos = Math.cos((m.heading || 0) * Math.PI / 180);
+        const sin = Math.sin((m.heading || 0) * Math.PI / 180);
+        const mappedPorts = [];
+        (schema.ports || []).forEach(sp => {
+            const wx = m.x + (sp.rel_x * cos + sp.rel_y * sin);
+            const wy = m.y + (-sp.rel_x * sin + sp.rel_y * cos); 
+            const track = this._getTrackAtExact(wx, wy, 0.5);
+            if (track && track.type === "STRAIGHT") {
+                const d_fwd = this._dir(track.heading);
+                const vX = wx - track.x;
+                const vY = wy - track.y;
+                let t = (vX * d_fwd.x + vY * d_fwd.y);
+                t = Math.max(0, Math.min(track.length, t));
+                mappedPorts.push({
+                    schema_port_id: sp.id,
+                    trackId: track.id,
+                    offset: t
+                });
+            }
+        });
+        m.ports = mappedPorts;
+        m.connected_ports = mappedPorts;
+    },
+
+    _updateAllMachinePorts: function() {
+        this.machines.forEach(m => this._updateMachinePorts(m));
+    },
+
+    _distToSegment: function(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+        let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+        return Math.hypot(px - projX, py - projY);
+    },
+
+    _getTrackSegments: function(tr) {
+        const d_fwd = this._dir(tr.heading);
+        const L = tr.length || 1.0;
+        const R = this.turnRadius;
+        const segments = [];
+
+        const addPolyline = (pts) => {
+            for (let i = 0; i < pts.length - 1; i++) {
+                segments.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
+            }
+        };
+
+        if (tr.type === "STRAIGHT") {
+            segments.push({
+                x1: tr.x,
+                y1: tr.y,
+                x2: tr.x + L * d_fwd.x,
+                y2: tr.y + L * d_fwd.y
+            });
+        } else if (tr.type === "TURN_R" || tr.type === "TURN_L") {
+            addPolyline(this._getCurvePoints(tr.x, tr.y, tr.heading, tr.type === "TURN_R"));
+        } else if (tr.type === "DIVERGE_R" || tr.type === "DIVERGE_L") {
+            segments.push({
+                x1: tr.x,
+                y1: tr.y,
+                x2: tr.x + 0.5 * d_fwd.x,
+                y2: tr.y + 0.5 * d_fwd.y
+            });
+            addPolyline(this._getCurvePoints(tr.x, tr.y, tr.heading, tr.type === "DIVERGE_R"));
+        } else if (tr.type === "MERGE_R" || tr.type === "MERGE_L") {
+            const isRight = tr.type === "MERGE_R";
+            segments.push({
+                x1: tr.x,
+                y1: tr.y,
+                x2: tr.x + 0.5 * d_fwd.x,
+                y2: tr.y + 0.5 * d_fwd.y
+            });
+            const d_side = this._dir(isRight ? tr.heading + 90 : tr.heading - 90);
+            const in2X = tr.x + R * d_side.x;
+            const in2Y = tr.y + R * d_side.y;
+            const in2Heading = isRight ? this._normAng(tr.heading - 90) : this._normAng(tr.heading + 90);
+            addPolyline(this._getCurvePoints(in2X, in2Y, in2Heading, isRight));
+        }
+        return segments;
+    },
+
+    _distToTrack: function(tr, wx, wy) {
+        const segments = this._getTrackSegments(tr);
+        let minD = Infinity;
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            const d = this._distToSegment(wx, wy, seg.x1, seg.y1, seg.x2, seg.y2);
+            if (d < minD) minD = d;
+        }
+        return minD;
+    },
+
+    _distToMachine: function(m, wx, wy) {
+        const schema = this.projectSchemas[m.schema_id] || {};
+        const w = schema.width || m.width || 0.8;
+        const h = schema.height || m.height || 0.8;
+        
+        const dx = wx - m.x;
+        const dy = wy - m.y;
+        const rad = (m.heading || 0) * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        
+        // Machine local rotated coords
+        const localX = dx * cos - dy * sin;
+        const localY = dx * sin + dy * cos;
+        
+        const halfW = w / 2;
+        const halfH = h / 2;
+        
+        const clampedX = Math.max(-halfW, Math.min(halfW, localX));
+        const clampedY = Math.max(-halfH, Math.min(halfH, localY));
+        
+        return Math.hypot(localX - clampedX, localY - clampedY);
+    },
+
+    _getObjectAt: function(wx, wy) {
+        const maxThreshold = Math.max(0.2, 18 / this.view.zoom);
+        let bestObj = null;
+        let bestType = null;
+        let bestDist = Infinity;
+
+        // Check tracks first (since tracks are layered on top of machines)
+        for (let i = this.tracks.length - 1; i >= 0; i--) {
+            const tr = this.tracks[i];
+            const d = this._distToTrack(tr, wx, wy);
+            if (d < maxThreshold && d < bestDist) {
+                bestDist = d;
+                bestObj = tr;
+                bestType = "TRACK";
+            }
+        }
+
+        // If cursor is close to a track, prioritize the track
+        if (bestObj && bestDist < maxThreshold * 0.75) {
+            return { obj: bestObj, type: bestType, dist: bestDist };
+        }
+
+        // Check machines (under tracks)
+        for (let i = this.machines.length - 1; i >= 0; i--) {
+            const m = this.machines[i];
+            const d = this._distToMachine(m, wx, wy);
+            if (d === 0) {
+                if (!bestObj || bestDist > 0.08) {
+                    return { obj: m, type: "MACHINE", dist: 0 };
+                }
+            }
+            if (d < maxThreshold && d < bestDist) {
+                bestDist = d;
+                bestObj = m;
+                bestType = "MACHINE";
+            }
+        }
+
+        if (bestObj) {
+            return { obj: bestObj, type: bestType, dist: bestDist };
+        }
+        return null;
+    },
+
+    _getTrackAtExact: function(wx, wy, threshold = 0.5) {
+        let best = null;
+        let bestD = threshold;
+        for (let i = this.tracks.length - 1; i >= 0; i--) {
+            const tr = this.tracks[i];
+            if (tr.type !== "STRAIGHT") continue;
+            const d_fwd = this._dir(tr.heading);
+            const vX = wx - tr.x;
+            const vY = wy - tr.y;
+            let t = (vX * d_fwd.x + vY * d_fwd.y);
+            if (t < 0 || t > tr.length) continue;
+            const projX = tr.x + t * d_fwd.x;
+            const projY = tr.y + t * d_fwd.y;
+            const dist = Math.hypot(wx - projX, wy - projY);
+            if (dist < bestD) {
+                bestD = dist;
+                best = tr;
+            }
+        }
+        return best;
+    },
+
+    _getTrackAt: function(wx, wy, threshold) {
+        const thresh = threshold !== undefined ? threshold : Math.max(0.2, 18 / this.view.zoom);
+        let best = null;
+        let bestD = thresh;
+        for (let i = this.tracks.length - 1; i >= 0; i--) {
+            const tr = this.tracks[i];
+            const d = this._distToTrack(tr, wx, wy);
+            if (d < bestD) {
+                bestD = d;
+                best = tr;
+            }
+        }
+        return best;
+    },
+
+    _getMachineAt: function(wx, wy, threshold) {
+        const thresh = threshold !== undefined ? threshold : Math.max(0.2, 18 / this.view.zoom);
+        let best = null;
+        let bestD = thresh;
+        for (let i = this.machines.length - 1; i >= 0; i--) {
+            const m = this.machines[i];
+            const d = this._distToMachine(m, wx, wy);
+            if (d < bestD) {
+                bestD = d;
+                best = m;
+            }
+        }
+        return best;
+    },
+
     _setupEvents: function() {
         if (this._eventsSetup) return;
         this._eventsSetup = true;
@@ -259,14 +548,51 @@ window.Builder = {
 
         c.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            if (this.activeTool) this.rotateTool();
+            if (this.activeTool) {
+                this.rotateTool();
+            } else {
+                this.rotateSelected();
+            }
         });
 
         window.addEventListener('keydown', (e) => {
+            // Ignore if user is typing in an input or textarea
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+                return;
+            }
+            if (e.key === 'r' || e.key === 'R') {
+                if (this.activeTool) {
+                    this.rotateTool();
+                } else {
+                    this.rotateSelected();
+                }
+                return;
+            }
             if (e.key === 'Escape') {
+                if (this.dragState && this.dragState.isDragging) {
+                    const target = this.dragState.target;
+                    target.x = this.dragState.originX;
+                    target.y = this.dragState.originY;
+                    if (this.dragState.targetType === "TRACK") {
+                        this._recomputeAllNodes();
+                        this._updateAllMachinePorts();
+                    } else {
+                        this._updateMachinePorts(target);
+                    }
+                    this.dragState = null;
+                    this._notify();
+                    return;
+                }
                 this.selectedTrackId = null;
+                this.selectedMachineId = null;
                 this.activeTool = null;
                 this._notify();
+            } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (this.selectedTrackId) {
+                    this.deleteTrack(this.selectedTrackId);
+                } else if (this.selectedMachineId) {
+                    this.deleteMachine(this.selectedMachineId);
+                }
             }
         });
 
@@ -275,17 +601,11 @@ window.Builder = {
             const rect = c.getBoundingClientRect();
             const sx = e.clientX - rect.left;
             const sy = e.clientY - rect.top;
+            const world = this.screenToWorld(sx, sy);
+            this.mouse.worldX = world.x;
+            this.mouse.worldY = world.y;
 
             if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
-                this.mouse.isPanning = true;
-                this.mouse.dragStart = { x: sx, y: sy };
-                return;
-            }
-            
-            
-
-            // Normal click to pan if empty space and no tool
-            if (!this.activeTool && e.button === 0 && !this._getTrackAt(this.mouse.worldX, this.mouse.worldY) && !this._getMachineAt(this.mouse.worldX, this.mouse.worldY)) {
                 this.mouse.isPanning = true;
                 this.mouse.dragStart = { x: sx, y: sy };
                 return;
@@ -303,30 +623,6 @@ window.Builder = {
                         const placeX = this.mouse.machineSnapped ? this.mouse.machineSnapPos.x : this.mouse.worldX;
                         const placeY = this.mouse.machineSnapped ? this.mouse.machineSnapPos.y : this.mouse.worldY;
                         
-                        // Map the ports based on the placement and heading
-                        const mappedPorts = [];
-                        const cos = Math.cos(this.toolHeading * Math.PI / 180);
-                        const sin = Math.sin(this.toolHeading * Math.PI / 180);
-                        
-                        (schema.ports || []).forEach(sp => {
-                            const wx = placeX + (sp.rel_x * cos + sp.rel_y * sin);
-                            const wy = placeY + (-sp.rel_x * sin + sp.rel_y * cos); 
-                            
-                            const track = this._getTrackAtExact(wx, wy);
-                            if (track && track.type === "STRAIGHT") {
-                                const d_fwd = this._dir(track.heading);
-                                const vX = wx - track.x;
-                                const vY = wy - track.y;
-                                let t = (vX * d_fwd.x + vY * d_fwd.y);
-                                t = Math.max(0, Math.min(track.length, t));
-                                mappedPorts.push({
-                                    schema_port_id: sp.id,
-                                    trackId: track.id,
-                                    offset: t
-                                });
-                            }
-                        });
-
                         const newMachine = {
                             id: `mach_${Date.now().toString().slice(-5)}`,
                             type: "MACHINE",
@@ -335,13 +631,16 @@ window.Builder = {
                             x: placeX,
                             y: placeY,
                             heading: this.toolHeading,
-                            connected_ports: mappedPorts
+                            ports: [],
+                            connected_ports: []
                         };
+                        this._updateMachinePorts(newMachine);
                         this.machines.push(newMachine);
                         this.selectedMachineId = newMachine.id;
                         this.selectedTrackId = null;
                         this.activeTool = null;
                         this._notify();
+                        this.markDirty();
                         return;
                     }
 
@@ -363,22 +662,50 @@ window.Builder = {
                     this.selectedTrackId = newTrack.id;
                     this.selectedMachineId = null;
                     this._notify();
+                    this.markDirty();
                 } else {
-                    const clickedMachine = this._getMachineAt(this.mouse.worldX, this.mouse.worldY);
-                    if (clickedMachine) {
-                        this.selectedMachineId = clickedMachine.id;
-                        this.selectedTrackId = null;
+                    // SELECT / MOVE mode: accurately hit-test placed objects
+                    const hit = this._getObjectAt(world.x, world.y);
+                    if (hit) {
+                        if (hit.type === "MACHINE") {
+                            this.selectedMachineId = hit.obj.id;
+                            this.selectedTrackId = null;
+                        } else {
+                            this.selectedTrackId = hit.obj.id;
+                            this.selectedMachineId = null;
+                        }
+                        this._notify();
+
+                        // Arm drag state for the clicked/selected object
+                        this.dragState = {
+                            isDown: true,
+                            isDragging: false,
+                            target: hit.obj,
+                            targetType: hit.type,
+                            startScreenX: sx,
+                            startScreenY: sy,
+                            originX: hit.obj.x,
+                            originY: hit.obj.y,
+                            mouseStartWorldX: world.x,
+                            mouseStartWorldY: world.y,
+                            snapped: false,
+                            snapTargetNode: null
+                        };
                     } else {
-                        const clicked = this._getTrackAt(this.mouse.worldX, this.mouse.worldY);
-                        this.selectedTrackId = clicked ? clicked.id : null;
+                        // Clicked empty canvas: deselect and initiate pan
+                        this.selectedTrackId = null;
                         this.selectedMachineId = null;
+                        this.dragState = null;
+                        this._notify();
+
+                        this.mouse.isPanning = true;
+                        this.mouse.dragStart = { x: sx, y: sy };
                     }
-                    this._notify();
                 }
             }
         });
 
-        c.addEventListener('mousemove', (e) => {
+        window.addEventListener('mousemove', (e) => {
             const rect = c.getBoundingClientRect();
             this.mouse.x = e.clientX - rect.left;
             this.mouse.y = e.clientY - rect.top;
@@ -387,6 +714,7 @@ window.Builder = {
                 this.view.panX += this.mouse.x - this.mouse.dragStart.x;
                 this.view.panY += this.mouse.y - this.mouse.dragStart.y;
                 this.mouse.dragStart = { x: this.mouse.x, y: this.mouse.y };
+                c.style.cursor = 'grabbing';
                 return;
             }
 
@@ -394,54 +722,98 @@ window.Builder = {
             this.mouse.worldX = world.x;
             this.mouse.worldY = world.y;
 
-            if (this.activeTool === "MACHINE" && this.machineSchemaId && this.projectSchemas[this.machineSchemaId]) {
-                const schema = this.projectSchemas[this.machineSchemaId];
-                this.mouse.machineSnapped = false;
-                this.mouse.machineSnapPos = { x: world.x, y: world.y };
-                
-                // Rotation matrix
-                const cos = Math.cos(this.toolHeading * Math.PI / 180);
-                const sin = Math.sin(this.toolHeading * Math.PI / 180);
-                
-                for (let sp of (schema.ports || [])) {
-                    // Port position relative to machine center
-                    const rx = sp.rel_x * cos + sp.rel_y * sin;
-                    const ry = -sp.rel_x * sin + sp.rel_y * cos; 
-                    const pwx = world.x + rx;
-                    const pwy = world.y + ry;
-                    
-                    const track = this._getTrackAtExact(pwx, pwy, 1.0); // look for track within 1 unit
-                    if (track && track.type === "STRAIGHT") {
-                        // We found a track. Let's snap the machine so this port perfectly aligns on the track line.
-                        // Calculate orthogonal projection
-                        const d_fwd = this._dir(track.heading);
-                        const vX = pwx - track.x;
-                        const vY = pwy - track.y;
-                        const t = (vX * d_fwd.x + vY * d_fwd.y);
-                        
-                        // The nearest point on the track line
-                        const nx = track.x + t * d_fwd.x;
-                        const ny = track.y + t * d_fwd.y;
-                        
-                        // Shift machine by (nx - pwx, ny - pwy)
-                        this.mouse.machineSnapPos.x += (nx - pwx);
-                        this.mouse.machineSnapPos.y += (ny - pwy);
-                        this.mouse.machineSnapped = true;
-                        break; // Snap to the first valid port
-                    }
+            // Handle Drag & Drop of selected object
+            if (this.dragState && this.dragState.isDown) {
+                const screenDist = Math.hypot(this.mouse.x - this.dragState.startScreenX, this.mouse.y - this.dragState.startScreenY);
+                if (screenDist > 4) {
+                    this.dragState.isDragging = true;
                 }
+
+                if (this.dragState.isDragging) {
+                    c.style.cursor = 'grabbing';
+                    const deltaX = world.x - this.dragState.mouseStartWorldX;
+                    const deltaY = world.y - this.dragState.mouseStartWorldY;
+                    const rawX = this.dragState.originX + deltaX;
+                    const rawY = this.dragState.originY + deltaY;
+
+                    if (this.dragState.targetType === "TRACK") {
+                        const tr = this.dragState.target;
+                        const snap = this._checkSnap(tr.type, rawX, rawY, tr.heading, tr.length, tr.id);
+                        if (snap.snapped) {
+                            tr.x = snap.x;
+                            tr.y = snap.y;
+                            this.dragState.snapped = true;
+                            this.dragState.snapTargetNode = snap.targetNode;
+                        } else {
+                            tr.x = rawX;
+                            tr.y = rawY;
+                            this.dragState.snapped = false;
+                            this.dragState.snapTargetNode = null;
+                        }
+                        this._recomputeAllNodes();
+                        this._updateAllMachinePorts();
+                    } else if (this.dragState.targetType === "MACHINE") {
+                        const m = this.dragState.target;
+                        const schema = this.projectSchemas[m.schema_id] || {};
+                        const snap = this._checkMachineSnap(schema, rawX, rawY, m.heading || 0);
+                        if (snap.snapped) {
+                            m.x = snap.x;
+                            m.y = snap.y;
+                            this.dragState.snapped = true;
+                        } else {
+                            m.x = rawX;
+                            m.y = rawY;
+                            this.dragState.snapped = false;
+                        }
+                        this._updateMachinePorts(m);
+                    }
+                    return;
+                }
+            }
+
+            const isOverCanvas = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+            if (!isOverCanvas) return;
+
+            if (this.activeTool === "MACHINE" && this.machineSchemaId && this.projectSchemas[this.machineSchemaId]) {
+                c.style.cursor = 'crosshair';
+                const schema = this.projectSchemas[this.machineSchemaId];
+                const snap = this._checkMachineSnap(schema, world.x, world.y, this.toolHeading);
+                this.mouse.machineSnapped = snap.snapped;
+                this.mouse.machineSnapPos = { x: snap.x, y: snap.y };
             } else if (this.activeTool) {
+                c.style.cursor = 'crosshair';
                 const snap = this._checkSnap(this.activeTool, world.x, world.y, this.toolHeading);
                 this.mouse.snapped = snap.snapped;
                 this.mouse.snapPos = { x: snap.x, y: snap.y };
                 this.mouse.snapTargetNode = snap.targetNode;
             } else {
                 this.mouse.snapped = false;
+                const hover = this._getObjectAt(world.x, world.y);
+                c.style.cursor = hover ? 'grab' : 'default';
             }
-
         });
 
-        window.addEventListener('mouseup', () => { this.mouse.isPanning = false; });
+        window.addEventListener('mouseup', () => { 
+            this.mouse.isPanning = false; 
+
+            if (this.dragState && this.dragState.isDown) {
+                if (this.dragState.isDragging) {
+                    const target = this.dragState.target;
+                    const movedDist = Math.hypot(target.x - this.dragState.originX, target.y - this.dragState.originY);
+                    if (movedDist > 0.001) {
+                        if (this.dragState.targetType === "TRACK") {
+                            this._recomputeAllNodes();
+                            this._updateAllMachinePorts();
+                        } else {
+                            this._updateMachinePorts(target);
+                        }
+                        this.markDirty();
+                        this._notify();
+                    }
+                }
+                this.dragState = null;
+            }
+        });
 
         c.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -455,49 +827,6 @@ window.Builder = {
             this.view.panX += (mouseAfter.x - mouseBefore.x) * this.view.zoom;
             this.view.panY -= (mouseAfter.y - mouseBefore.y) * this.view.zoom;
         });
-    },
-
-    
-    _getTrackAtExact: function(wx, wy, threshold=0.5) {
-        let best = null;
-        let bestD = threshold;
-        for (let i = this.tracks.length - 1; i >= 0; i--) {
-            const tr = this.tracks[i];
-            if (tr.type !== "STRAIGHT") continue;
-            // distance point to line segment
-            const d_fwd = this._dir(tr.heading);
-            const vX = wx - tr.x;
-            const vY = wy - tr.y;
-            let t = (vX * d_fwd.x + vY * d_fwd.y);
-            if (t < 0 || t > tr.length) continue;
-            const projX = tr.x + t * d_fwd.x;
-            const projY = tr.y + t * d_fwd.y;
-            const dist = Math.hypot(wx - projX, wy - projY);
-            if (dist < bestD) {
-                bestD = dist;
-                best = tr;
-            }
-        }
-        return best;
-    },
-
-    _getTrackAt: function(wx, wy) {
-        for (let i = this.tracks.length - 1; i >= 0; i--) {
-            const tr = this.tracks[i];
-            if (Math.hypot(tr.x - wx, tr.y - wy) < 0.6) return tr;
-        }
-        return null;
-    },
-
-    _getMachineAt: function(wx, wy) {
-        for (let i = this.machines.length - 1; i >= 0; i--) {
-            const m = this.machines[i];
-            // Simple bounding box check (machine is 0.8x0.8 centered at m.x, m.y)
-            if (Math.abs(m.x - wx) < 0.4 && Math.abs(m.y - wy) < 0.4) {
-                return m;
-            }
-        }
-        return null;
     },
 
     _addPortToMachine: function(machineId, track, wx, wy) {
@@ -551,14 +880,14 @@ window.Builder = {
 
         this._drawGrid();
 
-        this.tracks.forEach(tr => {
-            const isSelected = tr.id === this.selectedTrackId;
-            this._drawTrack(tr, isSelected ? "#eab308" : "#38bdf8", isSelected ? 8 : 4);
-        });
-
         this.machines.forEach(m => {
             const isSelected = m.id === this.selectedMachineId;
             this._drawMachine(m, isSelected ? "#eab308" : "#c084fc");
+        });
+
+        this.tracks.forEach(tr => {
+            const isSelected = tr.id === this.selectedTrackId;
+            this._drawTrack(tr, isSelected ? "#eab308" : "#38bdf8", isSelected ? 8 : 4);
         });
 
         for (const nid in this.nodes) {
@@ -575,7 +904,18 @@ window.Builder = {
             const py = this.mouse.snapped ? this.mouse.snapPos.y : this.mouse.worldY;
             
             if (this.activeTool === "MACHINE") {
-                this._drawMachine({ x: px, y: py, width: 0.8, height: 0.8, type: "MACHINE", capacity: 1, ports: [] }, "rgba(192, 132, 252, 0.5)");
+                const schema = (this.machineSchemaId && this.projectSchemas[this.machineSchemaId]) || {};
+                this._drawMachine({
+                    x: this.mouse.machineSnapped ? this.mouse.machineSnapPos.x : px,
+                    y: this.mouse.machineSnapped ? this.mouse.machineSnapPos.y : py,
+                    heading: this.toolHeading,
+                    schema_id: this.machineSchemaId,
+                    width: schema.width || 0.8,
+                    height: schema.height || 0.8,
+                    type: "MACHINE",
+                    capacity: schema.capacity || 1,
+                    ports: []
+                }, "rgba(192, 132, 252, 0.7)");
             } else {
                 const preview = { type: this.activeTool, x: px, y: py, heading: this.toolHeading, length: this.straightLength, radius: this.turnRadius };
                 this._drawTrack(preview, "rgba(56, 189, 248, 0.5)", 4, true);
@@ -591,6 +931,17 @@ window.Builder = {
                 ctx.stroke();
                 ctx.setLineDash([]);
             }
+        }
+
+        if (this.dragState && this.dragState.isDragging && this.dragState.snapped && this.dragState.snapTargetNode) {
+            const sp = this.worldToScreen(this.dragState.snapTargetNode.x, this.dragState.snapTargetNode.y);
+            ctx.beginPath();
+            ctx.arc(sp.x, sp.y, 14, 0, 2 * Math.PI);
+            ctx.strokeStyle = "#4ade80";
+            ctx.lineWidth = 3;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
     },
 
@@ -647,52 +998,130 @@ window.Builder = {
     _drawMachine: function(m, color) {
         const ctx = this.ctx;
         const center = this.worldToScreen(m.x, m.y);
-        const w = (m.width || 0.8) * this.view.zoom;
-        const h = (m.height || 0.8) * this.view.zoom;
+        const schema = this.projectSchemas[m.schema_id] || {};
+        const heading = m.heading || 0;
+        const w = (schema.width || m.width || 0.8) * this.view.zoom;
+        const h = (schema.height || m.height || 0.8) * this.view.zoom;
 
-        // Draw dashed lines to ports
-        if (m.ports) {
-            ctx.strokeStyle = "#64748b";
+        const role = schema.machine_role || 'normal';
+        let boxColor = "#1e293b";
+        if (role === 'source') boxColor = "#166534";
+        else if (role === 'sink') boxColor = "#7f1d1d";
+
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        // Rotate in screen space clockwise by heading
+        ctx.rotate((heading * Math.PI) / 180);
+
+        // 1. Machine body box (centered at 0, 0)
+        ctx.fillStyle = boxColor;
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-w / 2, -h / 2, w, h);
+
+        // 2. Heading orientation notch pointing North (local -Y in screen space)
+        ctx.beginPath();
+        ctx.moveTo(0, -h / 2 + 2);
+        ctx.lineTo(-6, -h / 2 + 10);
+        ctx.lineTo(6, -h / 2 + 10);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        // 3. Labels
+        let label = role.toUpperCase();
+        if (label === 'NORMAL') label = m.schema_id || m.machine_type || "MACHINE";
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, 0, -6);
+        ctx.fillStyle = "#a78bfa";
+        ctx.font = "10px sans-serif";
+        ctx.fillText(`[0/${schema.capacity || m.capacity || 1}]`, 0, 8);
+
+        // 4. Render visible ports directly on the machine body
+        const schemaPorts = schema.ports || [];
+        schemaPorts.forEach(sp => {
+            // Local position: rel_x is East (+X), rel_y is North (+Y world = -Y canvas)
+            const pLocalX = sp.rel_x * this.view.zoom;
+            const pLocalY = -sp.rel_y * this.view.zoom;
+
+            let portBg = "#4ade80"; // LOAD green
+            if (sp.type === "UNLOAD") portBg = "#ef4444"; // red
+            else if (sp.type === "BOTH") portBg = "#fbbf24"; // amber/yellow
+
+            // Dark outer border ring
+            ctx.beginPath();
+            ctx.arc(pLocalX, pLocalY, 7, 0, 2 * Math.PI);
+            ctx.fillStyle = "#0f172a";
+            ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Inner colored circle
+            ctx.beginPath();
+            ctx.arc(pLocalX, pLocalY, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = portBg;
+            ctx.fill();
+
+            // Port letter label (L / U / B)
+            ctx.fillStyle = "#0f172a";
+            ctx.font = "bold 7px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const typeLetter = sp.type === "LOAD" ? "L" : (sp.type === "UNLOAD" ? "U" : "B");
+            ctx.fillText(typeLetter, pLocalX, pLocalY);
+        });
+
+        ctx.restore();
+
+        // 5. Draw connection lines from the machine port to the connected track
+        const machinePorts = m.ports || m.connected_ports;
+        if (machinePorts && machinePorts.length > 0) {
+            const cos = Math.cos(heading * Math.PI / 180);
+            const sin = Math.sin(heading * Math.PI / 180);
+
+            ctx.strokeStyle = "#8b5cf6";
             ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            m.ports.forEach(port => {
-                const tr = this.tracks.find(t => t.id === port.trackId);
-                if (tr) {
-                    const d_fwd = this._dir(tr.heading);
-                    const px = tr.x + port.offset * d_fwd.x;
-                    const py = tr.y + port.offset * d_fwd.y;
-                    const pScreen = this.worldToScreen(px, py);
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(center.x, center.y);
-                    ctx.lineTo(pScreen.x, pScreen.y);
-                    ctx.stroke();
+            ctx.setLineDash([4, 4]);
 
-                    // Draw port connection dot
-                    ctx.beginPath();
-                    ctx.arc(pScreen.x, pScreen.y, 4, 0, 2*Math.PI);
-                    ctx.fillStyle = "#8b5cf6";
-                    ctx.fill();
+            machinePorts.forEach(cp => {
+                const tr = this.tracks.find(t => t.id === cp.trackId);
+                if (!tr) return;
+
+                const sp = schemaPorts.find(p => p.id === cp.schema_port_id);
+                let portScreenX = center.x;
+                let portScreenY = center.y;
+                if (sp) {
+                    const pwx = m.x + (sp.rel_x * cos + sp.rel_y * sin);
+                    const pwy = m.y + (-sp.rel_x * sin + sp.rel_y * cos);
+                    const pScreen = this.worldToScreen(pwx, pwy);
+                    portScreenX = pScreen.x;
+                    portScreenY = pScreen.y;
                 }
+
+                const d_fwd = this._dir(tr.heading);
+                const tx = tr.x + cp.offset * d_fwd.x;
+                const ty = tr.y + cp.offset * d_fwd.y;
+                const trackScreen = this.worldToScreen(tx, ty);
+
+                ctx.beginPath();
+                ctx.moveTo(portScreenX, portScreenY);
+                ctx.lineTo(trackScreen.x, trackScreen.y);
+                ctx.stroke();
+
+                // Draw connection dot on the track
+                ctx.beginPath();
+                ctx.arc(trackScreen.x, trackScreen.y, 4, 0, 2 * Math.PI);
+                ctx.fillStyle = "#8b5cf6";
+                ctx.fill();
             });
             ctx.setLineDash([]);
         }
-
-        // Draw machine box
-        ctx.fillStyle = "#1e293b";
-        ctx.fillRect(center.x - w/2, center.y - h/2, w, h);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
-        ctx.strokeRect(center.x - w/2, center.y - h/2, w, h);
-
-        // Draw text label
-        ctx.fillStyle = "#f8fafc";
-        ctx.font = "12px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(m.machine_type || "MACHINE", center.x, center.y - 10);
-        ctx.fillStyle = "#a78bfa";
-        ctx.fillText(`[0/${m.capacity || 1}]`, center.x, center.y + 10);
     },
 
     _drawPathPoints: function(points) {
@@ -984,6 +1413,7 @@ window.Builder = {
     
     loadGraph: function(data) {
         try {
+            this._loading = true;
             this.clear();
             if (data.tracks) {
                 this.tracks = data.tracks;
@@ -991,8 +1421,11 @@ window.Builder = {
                 this._recomputeAllNodes();
                 this._notify();
             }
+            this.isDirty = false;
         } catch (e) {
             alert("Error loading map: " + e.message);
+        } finally {
+            this._loading = false;
         }
     }
 };

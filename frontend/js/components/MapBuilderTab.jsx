@@ -1,6 +1,6 @@
 const { useState, useEffect, useRef } = React;
 
-function MapBuilderTab({ project, schemas }) {
+function MapBuilderTab({ project, schemas, recipes, onMapChange, activeMapName, setActiveMapName, onSaveProject }) {
     const [builderState, setBuilderState] = useState({
         activeTool: "STRAIGHT",
         toolHeading: 0,
@@ -14,18 +14,30 @@ function MapBuilderTab({ project, schemas }) {
     const [verifyResults, setVerifyResults] = useState(null);
     const canvasRef = useRef(null);
     const [mapList, setMapList] = useState([]);
-    const [selectedMap, setSelectedMap] = useState("");
+    const [selectedMap, setSelectedMap] = useState(activeMapName || "map.json");
+
+    // Keep activeMapName in sync
+    useEffect(() => {
+        if (activeMapName && activeMapName !== selectedMap) {
+            setSelectedMap(activeMapName);
+        }
+    }, [activeMapName]);
 
     const fetchMaps = () => {
         window.API.listMaps(project).then(maps => {
-            setMapList(maps || []);
-            if (maps && maps.length > 0 && !selectedMap) setSelectedMap(maps[0]);
-        });
+            const list = maps || [];
+            setMapList(list);
+            if (list.length > 0) {
+                const current = (activeMapName && list.includes(activeMapName)) ? activeMapName : list[0];
+                setSelectedMap(current);
+                if (setActiveMapName) setActiveMapName(current);
+            }
+        }).catch(e => console.error("Failed to list maps", e));
     };
 
     useEffect(() => {
         fetchMaps();
-    }, []);
+    }, [project]);
 
     useEffect(() => {
         // Initialize Map Builder on canvas
@@ -33,6 +45,11 @@ function MapBuilderTab({ project, schemas }) {
             window.Builder.init(canvasRef.current);
             window.Builder.setProjectSchemas(schemas); // pass schemas down
             
+            // Connect change listener for dirty tracking
+            window.Builder.onChange = () => {
+                if (onMapChange) onMapChange();
+            };
+
             const renderLoop = () => {
                 setBuilderState(prev => ({
                     ...prev,
@@ -47,7 +64,8 @@ function MapBuilderTab({ project, schemas }) {
             renderLoop();
             
             // Load default map for this project
-            window.API.loadMap(project, 'map.json').then(data => {
+            const targetMap = activeMapName || 'map.json';
+            window.API.loadMap(project, targetMap).then(data => {
                 if (data && !data.error) window.Builder.loadGraph(data);
             }).catch(e => console.log("Map not found, starting fresh."));
         }
@@ -64,10 +82,16 @@ function MapBuilderTab({ project, schemas }) {
     };
 
     const handleSave = async () => {
+        if (onSaveProject) {
+            await onSaveProject();
+            fetchMaps();
+            return;
+        }
         const graph = window.Builder.saveGraph();
         try {
             await window.API.saveMap(project, selectedMap || 'map.json', graph);
             alert(`Saved map to ${selectedMap || 'map.json'}`);
+            if (window.Builder) window.Builder.isDirty = false;
             fetchMaps();
         } catch (e) {
             alert("Error saving map: " + e.message);
@@ -175,10 +199,14 @@ function MapBuilderTab({ project, schemas }) {
                         <button className="action-btn" onClick={handleSave}>Save</button>
                         <button className="action-btn" onClick={() => {
                             const name = prompt("Enter map name to save as:");
-                            if (name) {
+                            if (name && name.trim()) {
+                                const cleanName = name.trim().endsWith('.json') ? name.trim() : name.trim() + '.json';
                                 const graph = window.Builder.saveGraph();
-                                window.API.saveMap(project, name + (name.endsWith('.json') ? '' : '.json'), graph).then(() => {
-                                    alert(`Saved map to ${name}`);
+                                window.API.saveMap(project, cleanName, graph).then(() => {
+                                    alert(`Saved map to ${cleanName}`);
+                                    setSelectedMap(cleanName);
+                                    if (setActiveMapName) setActiveMapName(cleanName);
+                                    if (window.Builder) window.Builder.isDirty = false;
                                     fetchMaps();
                                 }).catch(e => alert("Error saving map: " + e));
                             }
@@ -193,7 +221,10 @@ function MapBuilderTab({ project, schemas }) {
                     <div className="form-row" style={{marginTop: '8px', gap: '8px', justifyContent: 'flex-start'}}>
                         <select 
                             value={selectedMap} 
-                            onChange={e => setSelectedMap(e.target.value)}
+                            onChange={e => {
+                                setSelectedMap(e.target.value);
+                                if (setActiveMapName) setActiveMapName(e.target.value);
+                            }}
                             style={{flex: 1}}
                         >
                             {mapList.map(m => (
@@ -203,7 +234,11 @@ function MapBuilderTab({ project, schemas }) {
                         <button className="action-btn" onClick={() => {
                             if (selectedMap) {
                                 window.API.loadMap(project, selectedMap)
-                                    .then(data => { window.Builder.loadGraph(data); alert(`Loaded ${selectedMap}`); })
+                                    .then(data => { 
+                                        window.Builder.loadGraph(data); 
+                                        if (setActiveMapName) setActiveMapName(selectedMap);
+                                        alert(`Loaded ${selectedMap}`); 
+                                    })
                                     .catch(e => alert("Error loading map: " + e));
                             }
                         }}>Load</button>
@@ -215,15 +250,20 @@ function MapBuilderTab({ project, schemas }) {
                         <h3>Selected Machine</h3>
                         <div className="form-row">
                             <span>Type:</span>
-                            <span style={{fontWeight: 'bold'}}>{builderState.selectedMachine.type}</span>
+                            <span style={{fontWeight: 'bold'}}>{builderState.selectedMachine.schema_id || builderState.selectedMachine.type}</span>
                         </div>
                         <div className="form-row">
                             <span>Heading:</span>
-                            <span style={{fontWeight: 'bold'}}>{builderState.selectedMachine.heading}°</span>
+                            <span style={{fontWeight: 'bold'}}>{builderState.selectedMachine.heading || 0}°</span>
                         </div>
                         <div className="form-row">
                             <span>Connected Ports:</span>
                             <span style={{fontWeight: 'bold'}}>{builderState.selectedMachine.connected_ports?.length || 0}</span>
+                        </div>
+                        <div className="form-row" style={{marginTop: '8px'}}>
+                            <button className="action-btn" onClick={() => window.Builder.rotateSelected()} style={{width: '100%'}}>
+                                Rotate 90°
+                            </button>
                         </div>
                     </div>
                 )}
@@ -239,10 +279,11 @@ function MapBuilderTab({ project, schemas }) {
 
             <div className="main-content">
                 <div className="helper-banner">
-                    <span className="helper-item"><b>Right Click:</b> Rotate</span>
+                    <span className="helper-item"><b>Left Drag:</b> Move Object / Pan</span>
+                    <span className="helper-item"><b>Right Click / R:</b> Rotate</span>
                     <span className="helper-item"><b>Scroll:</b> Zoom</span>
-                    <span className="helper-item"><b>Left Click / Middle Drag:</b> Pan</span>
-                    <span className="helper-item"><b>ESC:</b> Deselect</span>
+                    <span className="helper-item"><b>ESC:</b> Deselect / Cancel Drag</span>
+                    <span className="helper-item"><b>Del:</b> Delete</span>
                 </div>
                 <div className="canvas-container">
                     <canvas ref={canvasRef}></canvas>

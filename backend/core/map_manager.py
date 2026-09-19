@@ -92,12 +92,35 @@ class MapManager:
         
         rad = h * math.pi / 180.0
         vec = np.array([math.sin(rad), math.cos(rad), 0])
+        d_right = np.array([math.cos(rad), -math.sin(rad), 0])
+        d_left = np.array([-math.cos(rad), math.sin(rad), 0])
         p_start = np.array([x, y, 0])
         
+        MIN_BLOCK_LEN = 1.1
+
+        def add_subdivided_blocks(start_pt, end_pt, seg_len, base_id):
+            if seg_len <= 0.001:
+                return
+            num_blocks = max(1, int(seg_len // MIN_BLOCK_LEN))
+            block_len = seg_len / num_blocks
+            p_curr = start_pt
+            for b in range(num_blocks):
+                p_next = start_pt + vec * ((b + 1) * block_len) if b < num_blocks - 1 else end_pt
+                blk_id = f"{base_id}_b{b}" if num_blocks > 1 else base_id
+                self._raw_segments.append({
+                    'builder_id': blk_id,
+                    'type': 'line',
+                    'start': p_curr,
+                    'end': p_next,
+                    'calc_len': block_len,
+                    'zone': 'normal'
+                })
+                p_curr = p_next
+
         if tt == 'STRAIGHT':
             l = t.get('length', 1.0)
             
-            # Apply Port Splitting
+            # Apply Port Splitting and Block Discretization
             if tid in self.port_locations:
                 ports = self.port_locations[tid]
                 curr_start = p_start
@@ -108,120 +131,95 @@ class MapManager:
                     seg_len = split_offset - curr_offset
                     if seg_len > 0:
                         p_end = curr_start + vec * seg_len
-                        self._raw_segments.append({
-                            'builder_id': f"{tid}_part_{curr_offset}",
-                            'type': 'line', 'start': curr_start, 'end': p_end, 'calc_len': seg_len
-                        })
+                        add_subdivided_blocks(curr_start, p_end, seg_len, f"{tid}_p_{round(curr_offset*1000)}")
                         curr_start = p_end
                         curr_offset = split_offset
                     
                     # Register this coordinate as the port node
                     self.port_node_indices[(pinfo['machine_id'], pinfo['port_idx'])] = curr_start
 
-                # Final piece
+                # Final piece after last port
                 rem_len = l - curr_offset
                 if rem_len > 0:
                     p_end = curr_start + vec * rem_len
-                    self._raw_segments.append({
-                        'builder_id': f"{tid}_part_{curr_offset}",
-                        'type': 'line', 'start': curr_start, 'end': p_end, 'calc_len': rem_len
-                    })
+                    add_subdivided_blocks(curr_start, p_end, rem_len, f"{tid}_p_{round(curr_offset*1000)}")
             else:
                 p_end = p_start + vec * l
-                self._raw_segments.append({
-                    'builder_id': tid, 'type': 'line',
-                    'start': p_start, 'end': p_end, 'calc_len': l
-                })
+                add_subdivided_blocks(p_start, p_end, l, tid)
             
         elif tt.startswith('TURN'):
-            turn_dir = 'R' if '_R' in tt else 'L'
+            is_right = '_R' in tt
             r = t.get('radius', 0.5)
             
-            if turn_dir == 'R':
-                cx = x + r * math.cos(rad)
-                cy = y - r * math.sin(rad)
-                ang_s = -rad + math.pi
-                ang_t = -math.pi / 2
-            else:
-                cx = x - r * math.cos(rad)
-                cy = y + r * math.sin(rad)
-                ang_s = -rad
-                ang_t = math.pi / 2
-                
-            center = np.array([cx, cy, 0])
+            d_turn = np.array([math.cos(rad), -math.sin(rad), 0]) if is_right else np.array([-math.cos(rad), math.sin(rad), 0])
+            center = p_start + d_turn * r
+            ang_s = math.atan2(-d_turn[1], -d_turn[0])
+            ang_t = -math.pi / 2 if is_right else math.pi / 2
+            
             p_end = center + np.array([r * math.cos(ang_s + ang_t), r * math.sin(ang_s + ang_t), 0])
             
             self._raw_segments.append({
                 'builder_id': tid, 'type': 'curve',
                 'start': p_start, 'end': p_end, 'calc_len': r * abs(ang_t),
-                'center': center, 'radius': r, 'angleStart': ang_s, 'angleTotal': ang_t
+                'center': center, 'radius': r, 'angleStart': ang_s, 'angleTotal': ang_t,
+                'zone': 'slow'
             })
             
         elif tt.startswith('DIVERGE'):
-            turn_dir = 'R' if '_R' in tt else 'L'
+            is_right = '_R' in tt
             l = 0.5
             r = 0.5
             
+            # 1. Straight branch
             p_end_s = p_start + vec * l
             self._raw_segments.append({
                 'builder_id': tid + '_s', 'type': 'line',
-                'start': p_start, 'end': p_end_s, 'calc_len': l
+                'start': p_start, 'end': p_end_s, 'calc_len': l,
+                'zone': 'normal'
             })
             
-            rad2 = rad
-            if turn_dir == 'R':
-                cx = p_end_s[0] + r * math.cos(rad2)
-                cy = p_end_s[1] - r * math.sin(rad2)
-                ang_s = -rad2 + math.pi
-                ang_t = -math.pi / 2
-            else:
-                cx = p_end_s[0] - r * math.cos(rad2)
-                cy = p_end_s[1] + r * math.sin(rad2)
-                ang_s = -rad2
-                ang_t = math.pi / 2
-                
-            center = np.array([cx, cy, 0])
+            # 2. Turn branch (starts at p_start, branches out)
+            d_turn = np.array([math.cos(rad), -math.sin(rad), 0]) if is_right else np.array([-math.cos(rad), math.sin(rad), 0])
+            center = p_start + d_turn * r
+            ang_s = math.atan2(-d_turn[1], -d_turn[0])
+            ang_t = -math.pi / 2 if is_right else math.pi / 2
             p_end_t = center + np.array([r * math.cos(ang_s + ang_t), r * math.sin(ang_s + ang_t), 0])
             
             self._raw_segments.append({
                 'builder_id': tid + '_t', 'type': 'curve',
-                'start': p_end_s, 'end': p_end_t, 'calc_len': r * abs(ang_t),
-                'center': center, 'radius': r, 'angleStart': ang_s, 'angleTotal': ang_t
+                'start': p_start, 'end': p_end_t, 'calc_len': r * abs(ang_t),
+                'center': center, 'radius': r, 'angleStart': ang_s, 'angleTotal': ang_t,
+                'zone': 'slow'
             })
             
         elif tt.startswith('MERGE'):
-            turn_dir = 'R' if '_R' in tt else 'L'
-            l = 1.0
+            is_right = '_R' in tt
+            l = 0.5
             r = 0.5
             
+            # 1. Straight branch (from p_start to p_end_s)
             p_end_s = p_start + vec * l
             self._raw_segments.append({
                 'builder_id': tid + '_s', 'type': 'line',
-                'start': p_start, 'end': p_end_s, 'calc_len': l
+                'start': p_start, 'end': p_end_s, 'calc_len': l,
+                'zone': 'normal'
             })
             
-            if turn_dir == 'R':
-                cx = p_end_s[0] - r * math.cos(rad)
-                cy = p_end_s[1] + r * math.sin(rad)
-                center = np.array([cx, cy, 0])
-                ang_e = -rad
-                ang_s = ang_e - math.pi / 2
-                ang_t = math.pi / 2
-            else:
-                cx = p_end_s[0] + r * math.cos(rad)
-                cy = p_end_s[1] - r * math.sin(rad)
-                center = np.array([cx, cy, 0])
-                ang_e = -rad + math.pi
-                ang_s = ang_e + math.pi / 2
-                ang_t = -math.pi / 2
-                
-            p_start_t = center + np.array([r * math.cos(ang_s), r * math.sin(ang_s), 0])
+            # 2. Turn branch (starts at side input in2, merges tangentially into p_end_s)
+            d_side = d_right if is_right else d_left
+            p_start_t = p_start + d_side * r
+            center = p_start + d_side * r + vec * r
+            ang_s = math.atan2(-vec[1], -vec[0])
+            ang_t = -math.pi / 2 if is_right else math.pi / 2
+            p_end_t = p_end_s
             
             self._raw_segments.append({
                 'builder_id': tid + '_t', 'type': 'curve',
-                'start': p_start_t, 'end': p_end_s, 'calc_len': r * abs(ang_t),
-                'center': center, 'radius': r, 'angleStart': ang_s, 'angleTotal': ang_t
+                'start': p_start_t, 'end': p_end_t, 'calc_len': r * abs(ang_t),
+                'center': center, 'radius': r, 'angleStart': ang_s, 'angleTotal': ang_t,
+                'zone': 'slow'
             })
+
 
     def _build_graph(self):
         for s in self.segments.values():
@@ -299,10 +297,38 @@ class MapManager:
     def get_outgoing_segments(self, node_id):
         return self.outgoing_map.get(node_id, [])
    
+    def is_curve(self, seg_id) -> bool:
+        seg = self.segments.get(seg_id)
+        return bool(seg and seg.get('type') == 'curve')
+
+    def get_block_length_m(self, seg_id) -> float:
+        seg = self.segments.get(seg_id)
+        return seg['calc_len'] if seg else 1.0
+
+    def get_block_speed_limit(self, seg_id) -> float:
+        seg = self.segments.get(seg_id)
+        if not seg: return 2.0
+        zone = seg.get('zone', 'normal')
+        if seg.get('type') == 'curve' or zone == 'slow':
+            return 0.8  # 800 mm/s = 0.8 m/s
+        elif zone == 'crawl':
+            return 0.3  # 300 mm/s = 0.3 m/s
+        return 2.0      # 2000 mm/s = 2.0 m/s
+
+    def get_next_segments(self, seg_id):
+        seg = self.segments.get(seg_id)
+        if not seg: return []
+        v = seg['v']
+        return self.get_outgoing_segments(v)
+
+    def get_curve_exit_blocks(self, seg_id):
+        """For a curve segment, returns all downstream straight blocks."""
+        if not self.is_curve(seg_id):
+            return []
+        return self.get_next_segments(seg_id)
+
     def _build_caution_zones(self):
         self.segment_to_zones = {}
-        # Simple implementation for now to prevent crashes
-        pass
 
     def get_zones_for_segment(self, seg_id):
         return self.segment_to_zones.get(seg_id, [])

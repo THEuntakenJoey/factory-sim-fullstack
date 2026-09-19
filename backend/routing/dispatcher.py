@@ -1,314 +1,193 @@
 from __future__ import annotations
-import json
-import random
-import os
-from collections import deque
-from typing import TYPE_CHECKING, List, Dict, TypedDict, Optional, Tuple
+from typing import Dict, List, Optional, Any
+from .interfaces import PathfindingStrategy, VehicleAssignmentStrategy, MachineAllocationStrategy
+from .pathfinding import get_pathfinding_strategy
+from .strategies import get_vehicle_assignment_strategy, get_machine_allocation_strategy
 
-if TYPE_CHECKING:
-    from map_manager import MapManager
-    from agent import OHTAgent
-from virtual_objects import Container, VirtualMachine
-
-# --- TYPE DEFINITION ---
-class TransportRequest(TypedDict):
-    cid: str
-    u: int          # Start Node
-    u_port_idx: int # Start Port
-    v: int          # End Node
-    v_port_idx: int # End Port
-
-class VirtualMES:
+class Dispatcher:
     """
-    The 'Boss'. Knows inventory and generates high-level Transport Requests.
-    For this test, it implements the 'Mindless Shuffle' logic.
+    Central Logistics Coordinator implementing the Closed-Loop Recipe Dispatcher
+    with Downstream Reservation & Backpressure Flow Control.
     """
-    def __init__(self, map_mgr: MapManager, schema_path: str = None):
+    def __init__(
+        self,
+        map_mgr: Any,
+        traffic_controller: Any,
+        pathfinding_strategy_name: str = "dijkstra",
+        vehicle_assignment_strategy_name: str = "nearest",
+        machine_allocation_strategy_name: str = "least_loaded"
+    ):
         self.map_mgr = map_mgr
+        self.traffic_ctrl = traffic_controller
 
-        # 1. Load Schema
-        self.schema = {}
-        if schema_path and os.path.exists(schema_path):
-            with open(schema_path, 'r') as f:
-                self.schema = json.load(f)
+        # Modular Strategies
+        self.pathfinder: PathfindingStrategy = get_pathfinding_strategy(pathfinding_strategy_name)
+        self.vehicle_selector: VehicleAssignmentStrategy = get_vehicle_assignment_strategy(vehicle_assignment_strategy_name)
+        self.machine_selector: MachineAllocationStrategy = get_machine_allocation_strategy(machine_allocation_strategy_name)
 
-        # 2. Build Virtual Factory
-        # Key: Node_ID (int), Value: VirtualMachine Object
-        self.machines: Dict[int, VirtualMachine] = {}
-        self._build_factory()
-
-        # 3. Inventory
-        self.containers: Dict[str, Container] = {}
-
-    def _build_factory(self):
-        """Iterates map waypoints and creates VirtualMachines based on schema."""
-        for nid, wp_data in self.map_mgr.waypoints.items():
-            w_type = wp_data.get('type')
-            w_name = wp_data.get('id')
-
-            # Look up config in schema
-            if w_type in self.schema:
-                config = self.schema[w_type]
-                num_ports = config.get('ports', 1)
-
-                vm = VirtualMachine(nid, w_name, w_type, num_ports, self)
-                self.machines[nid] = vm
-                # print(f"[MES] Built {w_name} ({w_type}) at Node {nid} with {num_ports} ports.")
-                self.map_mgr.register_machine(nid, vm)
-
-    def seed_inventory(self, amount: int, mix_ratio=0.5):
-        """
-        Populates empty ports with Containers.
-        mix_ratio: Percentage of FOUPs vs Magazines.
-        """
-        # Find all empty ports across all machines
-        available_spots = []
-        for vm in self.machines.values():
-            for port in vm.ports:
-                if port.state == "EMPTY":
-                    available_spots.append((vm, port))
-
-        # Create Cargo
-        count = min(amount, len(available_spots))
-        if count == 0: return
-       
-        selected = random.sample(available_spots, count)
-
-        for i, (vm, port) in enumerate(selected):
-            # Determine Type
-            c_type = "FOUP" if random.random() < mix_ratio else "MAGAZINE"
-            c_id = f"{c_type}_{i:03d}"
-
-            # Create Container
-            c = Container(c_id, c_type, vm.node_id)
-
-            # Place in Port
-            port.container = c
-            port.state = "OCCUPIED"
-
-            self.containers[c_id] = c
-            print(f"[MES] Seeded {c_id} at {vm.name} (Port {port.index})")
-
-    def generate_transport_request(self) -> Optional[TransportRequest]:
-        # 1. Source
-        valid_sources = [c for c in self.containers.values() if c.state == "STORED"]
-        if not valid_sources: return None
-
-        target_c = random.choice(valid_sources)
-
-        src_vm = self.machines.get(target_c.location)
-        if not src_vm: return None
-       
-        src_port = src_vm.get_port_with_container(target_c.id)
-        if not src_port: return None # Should not happen if state is synced
-
-        # 2. Dest: Find an EMPTY Port (not at current loc)
-        valid_dests = []
-        for vm in self.machines.values():
-            # Don't move to same machine
-            if vm.node_id == target_c.location: continue
-
-            p = vm.get_empty_port()
-            if p: valid_dests.append((vm, p))
-
-        if not valid_dests: return None
-
-        dest_vm, dest_port = random.choice(valid_dests)
-
-        # 3. Reserve
-        target_c.state = "RESERVED"
-        dest_port.state = "RESERVED"
-
-        # We return the Port Index so MCS can tell the Agent exactly where to put it
-        return {
-            'cid': target_c.id,
-            'u': target_c.location,
-            'u_port_idx': src_port.index,
-            'v': dest_vm.node_id,
-            'v_port_idx': dest_port.index
+        self.strategy_names = {
+            "pathfinding": pathfinding_strategy_name,
+            "vehicle_assignment": vehicle_assignment_strategy_name,
+            "machine_allocation": machine_allocation_strategy_name
         }
 
-    def complete_transfer(self, cid, final_node, port_idx):
-        """Called by MCS when Agent drops off cargo."""
-        c = self.containers.get(cid)
-        vm = self.machines.get(final_node)
+    def set_strategies(
+        self,
+        pathfinding: Optional[str] = None,
+        vehicle_assignment: Optional[str] = None,
+        machine_allocation: Optional[str] = None
+    ):
+        if pathfinding:
+            self.pathfinder = get_pathfinding_strategy(pathfinding)
+            self.strategy_names["pathfinding"] = pathfinding
+        if vehicle_assignment:
+            self.vehicle_selector = get_vehicle_assignment_strategy(vehicle_assignment)
+            self.strategy_names["vehicle_assignment"] = vehicle_assignment
+        if machine_allocation:
+            self.machine_selector = get_machine_allocation_strategy(machine_allocation)
+            self.strategy_names["machine_allocation"] = machine_allocation
 
-        if c and vm:
-            port = vm.ports[port_idx]
+    def spin(
+        self,
+        agents: Dict[str, Any],
+        machines: Dict[str, Any],
+        recipes: Dict[str, Any],
+        sim_engine: Any,
+        analytics_tracker: Any = None
+    ):
+        current_time = sim_engine.sim_time
 
-            # Update Container
-            c.location = final_node
-            c.state = "STORED"
+        # 0. Watchdog: recover from deadlocked pickup missions
+        for a in agents.values():
+            if a.state == "WAITING_BLOCK" and a.current_mission and a.current_mission.get("type") == "PICKUP":
+                wait_since = getattr(a, 'wait_block_since', None)
+                if wait_since is not None and (current_time - wait_since) > 15.0:
+                    # Cancel stale reservation so system can re-dispatch
+                    mission = a.current_mission
+                    carrier = mission.get("carrier")
+                    if carrier:
+                        carrier.state = "STORED"
+                    a.current_mission = None
+                    a.route = []
+                    a.state = "IDLE"
+                    a.wait_block_since = None
+                    if hasattr(self.traffic_ctrl, 'release_unneeded_blocks'):
+                        self.traffic_ctrl.release_unneeded_blocks(a, {a.current_block})
+                    for m in machines.values():
+                        for p in m.ports:
+                            if p.reserved_by == a.id:
+                                p.reserved_by = None
+                                if p.state == "RESERVED":
+                                    p.state = "EMPTY"
+                                    m.pending_deliveries = max(0, m.pending_deliveries - 1)
 
-            # Update Port
-            port.container = c
-            port.state = "OCCUPIED"
+        idle_agents = [a for a in agents.values() if a.state == "IDLE" and not a.route]
+        if not idle_agents:
+            return
 
-            # Clear old port?
-            # (In reality, source port became empty when Pickup happened.
-            #  We should have a pickup_callback too, but skipping for brevity.)
-            print(f"[MES] Transfer Finalized: {cid} -> {vm.name} Port {port_idx}")
+        # Build traffic data for congestion-aware routing
+        traffic_data = {
+            "occupancy": {},
+            "jam_time": getattr(analytics_tracker, "segment_jam_time", {}) if analytics_tracker else {}
+        }
+        for a in agents.values():
+            if a.current_block:
+                traffic_data["occupancy"][a.current_block] = traffic_data["occupancy"].get(a.current_block, 0) + 1
 
-    def notify_pickup(self, cid):
-        """Clean up source port."""
-        c = self.containers.get(cid)
-        # Note: Physical machine port is already cleared by VirtualMachine.retrieve_cargo
-        # We just update the Container state here.
-        if c:
-            c.state = "MOVING"
+        # Scan machines for ready cargo
+        for src_m in machines.values():
+            if not idle_agents:
+                break
 
-    def notify_port_change(self, node_id, port_idx, new_state, cid=None):
-        """
-        Callback from VirtualMachine when physical state changes.
-        Used to keep MES state in sync if hardware changes autonomously.
-        """
-        # For this simulation, complete_transfer handles the logic,
-        # but this is required for the VirtualMachine class to not crash.
-        pass
+            unload_port = src_m.get_ready_unload_port()
+            if not unload_port or not unload_port.carrier:
+                continue
 
-class VirtualMCS:
-    """
-    The 'Dispatcher'. Receives Requests from MES and assigns them to OHTs.
-    """
-    def __init__(self, agents: List[OHTAgent], mes: VirtualMES):
-        self.agents = agents # List of OHTAgent objects
-        self.mes = mes       # Reference back to MES for updates
-        self.job_queue: deque[TransportRequest] = deque()
+            carrier = unload_port.carrier
+            if carrier.state == "RESERVED_FOR_PICKUP":
+                continue  # Already assigned to an incoming OHT
 
-    def add_request(self, request: TransportRequest):
-        """Request format: (cid, start_node, end_node)"""
-        self.job_queue.append(request)
-        print(f"[MCS] Job Queued: {request['cid']} ({request['u']} -> {request['v']})")
+            # 1. Determine destination machine candidates
+            next_schema_id = carrier.get_current_step_schema(recipes)
+            dest_candidates = []
 
-    def spin(self):
-        """Main dispatch loop. Call this every frame."""
-        if not self.job_queue: return
+            if carrier.is_finished(recipes) or next_schema_id is None:
+                # Destination is a Sink machine
+                dest_candidates = [m for m in machines.values() if m.machine_role == "sink" and m.get_available_load_port()]
+            else:
+                # Destination is a machine matching next_schema_id with an available LOAD port
+                dest_candidates = [
+                    m for m in machines.values()
+                    if m.schema_id == next_schema_id and m.get_available_load_port()
+                ]
 
-        # Try to assign the next job
-        request = self.job_queue[0] # Peek
+            # 2. BACKPRESSURE CHECK: If no downstream machine has an available port, DO NOT PICK UP!
+            if not dest_candidates:
+                continue
 
-        # 1. Find Best Agent
-        # Find Agent
-        agent = self._find_agent(request['u'])
-        if agent:
-            self.job_queue.popleft()
-            self._dispatch(agent, request)
-        else:
-            # No agents available, wait for next tick
-            pass
+            # 3. Select target machine via MachineAllocationStrategy
+            src_node = unload_port.node_idx
+            target_machine = self.machine_selector.select_machine(dest_candidates, src_node, self.map_mgr)
+            if not target_machine:
+                continue
 
-    def _find_agent(self, target_node):
-        candidates = [a for a in self.agents if a.state == "IDLE" and not a.mission_queue]
+            # 4. Select best idle OHT via VehicleAssignmentStrategy
+            agent = self.vehicle_selector.select_agent(idle_agents, src_node, self.map_mgr)
+            if not agent:
+                continue
 
-        if not candidates: return None
+            # 5. Lock Downstream Load Port & Reserve Carrier
+            target_port = target_machine.reserve_load_port(agent.id)
+            if not target_port:
+                continue
 
-        # In a real system, we'd calculate path distance.
-        # For now, just pick the first one or random.
-        return candidates[0]
+            carrier.state = "RESERVED_FOR_PICKUP"
+            dest_node = target_port.node_idx
 
-    def _dispatch(self, agent: OHTAgent, req: TransportRequest):
-        cid = req['cid']
-        print(f"[MCS] Dispatching {cid} to Agent")
+            # 6. Compute Paths
+            agent_node = agent.get_current_node()
+            path_to_pickup = self.pathfinder.find_path(self.map_mgr, agent_node, src_node, traffic_data)
+            path_to_dropoff = self.pathfinder.find_path(self.map_mgr, src_node, dest_node, traffic_data)
 
-        # 1. Move to Source
-        agent.add_mission("MOVE", req['u'])
+            if path_to_pickup is None or path_to_dropoff is None:
+                # Route unavailable; unreserve and wait
+                target_port.state = "EMPTY"
+                target_port.reserved_by = None
+                target_machine.pending_deliveries = max(0, target_machine.pending_deliveries - 1)
+                carrier.state = "STORED"
+                continue
 
-        # 2. Pickup
-        def on_pickup():
-            self.mes.notify_pickup(cid)
+            # Successfully planned transfer! Remove agent from local idle pool
+            idle_agents.remove(agent)
 
-        agent.add_mission("ACTION", type="PICKUP",
-                          port_indices=[req['u_port_idx']],
-                          on_complete=on_pickup)
+            # 7. Handshake Mission Chain:
+            def make_pickup_complete(d_node, d_mach, d_port_idx, c_obj, s_eng):
+                def on_pickup_complete(ag):
+                    curr_node = ag.get_current_node()
+                    fresh_route = self.pathfinder.find_path(self.map_mgr, curr_node, d_node, traffic_data)
+                    if not fresh_route:
+                        fresh_route = self.pathfinder.find_path(self.map_mgr, curr_node, d_node)
+                    ag.assign_mission(
+                        mission_type="DROPOFF",
+                        target_node=d_node,
+                        route=fresh_route or [],
+                        machine=d_mach,
+                        port_idx=d_port_idx,
+                        carrier=ag.cargo or c_obj,
+                        on_complete=None,
+                        sim_engine=s_eng
+                    )
+                return on_pickup_complete
 
-        # 3. Move to Dest
-        agent.add_mission("MOVE", req['v'])
+            # Assign initial PICKUP mission
+            agent.assign_mission(
+                mission_type="PICKUP",
+                target_node=src_node,
+                route=path_to_pickup,
+                machine=src_m,
+                port_idx=unload_port.index,
+                carrier=carrier,
+                on_complete=make_pickup_complete(dest_node, target_machine, target_port.index, carrier, sim_engine),
+                sim_engine=sim_engine
+            )
 
-        # 4. Dropoff
-        def on_dropoff():
-            self.mes.complete_transfer(cid, req['v'], req['v_port_idx'])
-
-        agent.add_mission("ACTION", type="DROPOFF",
-                          port_indices=[req['v_port_idx']],
-                          cargo_ids=[cid], # DROPOFF needs cargo ID
-                          on_complete=on_dropoff)
-
-    def generate_smart_batch_moves(self):
-        """
-        Scans machines for Dual-Move opportunities.
-        """
-        for vm in self.mes.machines.values():
-            # 1. Check for Dual Pickup
-            pairs = vm.get_valid_dual_operations()
-            for (idx_a, idx_b) in pairs:
-                cid_a = vm.ports[idx_a].container.id
-                cid_b = vm.ports[idx_b].container.id
-
-                # Create a "Batch Mission"
-                # (Logic to find a destination that ALSO has 2 empty slots...)
-                dest_vm, dest_pair = self._find_dual_capacity_machine()
-
-                if dest_vm:
-                    self._dispatch_dual_transfer(vm, (idx_a, idx_b), (cid_a, cid_b), dest_vm, dest_pair)
-                    return # Dispatched one, break to next tick
-
-    def _find_dual_capacity_machine(self) -> Tuple[Optional[VirtualMachine], Optional[Tuple[int, int]]]:
-        """
-        Scans all machines to find one with adjacent empty ports (e.g. 0 and 1).
-        Returns: (VirtualMachine, (port_idx_a, port_idx_b)) or (None, None)
-        """
-        for vm in self.mes.machines.values():
-            pairs = vm.get_valid_dual_dropoff_slots() # Uses the helper we wrote in virtual_objects
-            if pairs:
-                # Found a machine with space!
-                return vm, pairs[0]
-        return None, None
-
-    def _dispatch_dual_transfer(self,
-                              src_vm: VirtualMachine,
-                              src_ports: Tuple[int, int],
-                              cids: Tuple[str, str],
-                              dest_vm: VirtualMachine,
-                              dest_ports: Tuple[int, int]):
-       
-        # 1. Find Agent
-        agent = self._find_agent(src_vm.node_id)
-        if not agent:
-            return # Retry next frame
-
-        print(f"[MCS] Dispatching DUAL BATCH {cids} to Agent")
-
-        # 2. Reserve Resources IMMEDIATELY (Prevent Double Dispatch)
-        # Source
-        src_vm.ports[src_ports[0]].container.state = "RESERVED"
-        src_vm.ports[src_ports[1]].container.state = "RESERVED"
-       
-        # Dest
-        dest_vm.ports[dest_ports[0]].state = "RESERVED"
-        dest_vm.ports[dest_ports[1]].state = "RESERVED"
-
-        # 3. Build Missions
-        # A. Move to Source
-        agent.add_mission("MOVE", src_vm.node_id)
-       
-        # B. Pickup Pair
-        def on_pickup_dual():
-            self.mes.notify_pickup(cids[0])
-            self.mes.notify_pickup(cids[1])
-           
-        agent.add_mission("ACTION", type="PICKUP",
-                          port_indices=list(src_ports),
-                          on_complete=on_pickup_dual)
-       
-        # C. Move to Dest
-        agent.add_mission("MOVE", dest_vm.node_id)
-       
-        # D. Dropoff Pair
-        def on_dropoff_dual():
-            self.mes.complete_transfer(cids[0], dest_vm.node_id, dest_ports[0])
-            self.mes.complete_transfer(cids[1], dest_vm.node_id, dest_ports[1])
-           
-        agent.add_mission("ACTION", type="DROPOFF",
-                          port_indices=list(dest_ports),
-                          cargo_ids=list(cids),
-                          on_complete=on_dropoff_dual)

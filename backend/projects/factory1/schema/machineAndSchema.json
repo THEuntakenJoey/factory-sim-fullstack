@@ -1,0 +1,111 @@
+{
+  "1": {
+    "id": "1",
+    "width": 1.5,
+    "height": 1,
+    "ports": [
+      {
+        "id": "p1789478563938",
+        "rel_x": -0.75,
+        "rel_y": 0,
+        "type": "LOAD"
+      },
+      {
+        "id": "p1789478565609",
+        "rel_x": 0.75,
+        "rel_y": 0,
+        "type": "UNLOAD"
+      }
+    ],
+    "capacity": 4,
+    "process_mode": "continuous",
+    "intake_mode": "batch",
+    "process_time": 10,
+    "intake_time": 5,
+    "port_lots_load": 4,
+    "port_lots_unload": 4,
+    "is_stub": false
+  },
+  "2": {
+    "id": "2",
+    "width": 1,
+    "height": 1,
+    "ports": [
+      {
+        "id": "p1789308120829",
+        "rel_x": -0.5,
+        "rel_y": 0,
+        "type": "LOAD"
+      },
+      {
+        "id": "p1789308121605",
+        "rel_x": 0.5,
+        "rel_y": 0,
+        "type": "UNLOAD"
+      }
+    ],
+    "capacity": 4,
+    "process_mode": "continuous",
+    "intake_mode": "batch",
+    "process_time": 5,
+    "intake_time": 5,
+    "port_lots_load": 1,
+    "port_lots_unload": 1,
+    "is_stub": false
+  },
+  "3": {
+    "id": "3",
+    "width": 0.5,
+    "height": 0.5,
+    "ports": [
+      {
+        "id": "p1789308049373",
+        "rel_x": 0,
+        "rel_y": 0,
+        "type": "UNLOAD"
+      }
+    ],
+    "capacity": 1,
+    "process_mode": "batch",
+    "intake_mode": "continuous",
+    "process_time": 5,
+    "intake_time": 1,
+    "port_lots_load": 1,
+    "port_lots_unload": 1,
+    "machine_role": "source",
+    "generation_interval": 5,
+    "generation_random": false,
+    "generators": [
+      {
+        "recipe_id": "1",
+        "ratio": 1
+      }
+    ],
+    "is_stub": false
+  },
+  "4": {
+    "id": "4",
+    "width": 0.5,
+    "height": 0.5,
+    "ports": [
+      {
+        "id": "p1789308065141",
+        "rel_x": 0,
+        "rel_y": 0,
+        "type": "LOAD"
+      }
+    ],
+    "capacity": 1,
+    "process_mode": "batch",
+    "intake_mode": "continuous",
+    "process_time": 5,
+    "intake_time": 1,
+    "port_lots_load": 1,
+    "port_lots_unload": 1,
+    "machine_role": "sink",
+    "generation_interval": 5,
+    "generation_random": false,
+    "generators": [],
+    "is_stub": false
+  }
+}

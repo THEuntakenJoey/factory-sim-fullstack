@@ -5,25 +5,25 @@
     "height": 1.5,
     "ports": [
       {
-        "id": "p1788269292962",
-        "rel_x": 1.5,
-        "rel_y": 0,
-        "type": "LOAD"
-      },
-      {
         "id": "p1788269294746",
         "rel_x": -1.5,
         "rel_y": 0,
         "type": "LOAD"
+      },
+      {
+        "id": "p1788356224345",
+        "rel_x": 1.5,
+        "rel_y": 0,
+        "type": "BOTH"
       }
     ],
-    "capacity": 1,
-    "process_mode": "batch",
-    "intake_mode": "continuous",
-    "process_time": 5,
-    "intake_time": 1,
-    "port_lots_load": 1,
-    "port_lots_unload": 1,
+    "capacity": 4,
+    "process_mode": "continuous",
+    "intake_mode": "batch",
+    "process_time": 10,
+    "intake_time": 5,
+    "port_lots_load": 4,
+    "port_lots_unload": 4,
     "is_stub": false
   },
   "2": {
@@ -51,6 +51,24 @@
     "intake_time": 1,
     "port_lots_load": 1,
     "port_lots_unload": 1,
+    "is_stub": false
+  },
+  "3": {
+    "id": "3",
+    "width": 2,
+    "height": 2,
+    "ports": [],
+    "capacity": 1,
+    "process_mode": "batch",
+    "intake_mode": "continuous",
+    "process_time": 5,
+    "intake_time": 1,
+    "port_lots_load": 1,
+    "port_lots_unload": 1,
+    "machine_role": "normal",
+    "generation_interval": 5,
+    "generation_random": false,
+    "generators": [],
     "is_stub": false
   }
 }

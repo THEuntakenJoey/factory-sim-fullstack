@@ -1,650 +1,395 @@
 from __future__ import annotations
 import math
 import numpy as np
-from collections import deque
-from typing import TYPE_CHECKING, List, Optional, Dict, Any
-
-from config import OHT_SPECS
-
-if TYPE_CHECKING:
-    from map_manager import MapManager
-    from traffic import TrafficRegistry
-
-# --- CONSTANTS ---
-TOLERANCE_NODE = 10.0   # mm: Distance considered "At the node"
-TOLERANCE_STOP = 2.0    # mm: Distance considered "Arrived" for physics snap
-BLIND_SPOT_BUFFER = -1000.0 # mm: How far past the line we still check priority
-
-class Mission:
-    """
-    Data container for Transport Orders or Actions.
-    """
-    def __init__(self, m_type: str, target_id: Optional[int] = None, **kwargs):
-        self.type = m_type  # "MOVE" or "ACTION"
-        self.target_id = target_id
-        self.params = kwargs
-
-class SpeedController:
-    """
-    Calculates target velocity based on physics and zone constraints.
-    """
-    def calculate_target_speed(self, limit_dist: float, speed_cap: float) -> float:
-        """
-        Calculates the maximum safe velocity allowed given a stopping distance
-        and a speed limit.
-
-        Args:
-            limit_dist (float): Distance to the nearest hard stop (obstacle/target).
-            speed_cap (float): The maximum speed limit (e.g. zone limit).
-
-        Returns:
-            float: Target speed (mm/s).
-        """
-        # 1. Physics Constraint (Braking Curve)
-        # Deadband: Prevent Zeno's Paradox (creeping infinitely to 0)
-        if limit_dist <= TOLERANCE_STOP:
-            physics_v = 0.0
-        else:
-            # Safety Factor (0.9): Brakes are treated as 90% effective to create a buffer.
-            safe_decel = OHT_SPECS['decel'] * 0.9
-            physics_v = math.sqrt(2 * safe_decel * limit_dist)
-
-        # 2. Zone Constraint (The "Ceiling")
-        target_v = min(physics_v, speed_cap)
-
-        # 3. Global Hard Clamp
-        return max(0.0, min(target_v, OHT_SPECS['speed_max']))
-
-class GraphWalker:
-    """
-    The 'Eyes' of the agent.
-    Scans the path ahead to identify constraints (Obstacles, Curves, Merges).
-    """
-    def __init__(self, mgr: MapManager, traffic_ctrl: TrafficRegistry):
-        self.mgr = mgr
-        self.traffic_ctrl = traffic_ctrl
-
-    def get_constraints(self, agent: OHTAgent):     
-        """
-        Returns (limit_dist, speed_cap).
-        1. limit_dist: Distance CENTER can move before V=0.
-        2. speed_cap: Max velocity allowed by zones.
-        """
-        specs = OHT_SPECS
-        safe = specs['safety']
-
-        # Default: Infinite distance (path clear)
-        limit_dist = agent.total_dist_to_target if agent.total_dist_to_target is not None else float('inf')
-        speed_cap = specs['speed_max']
-
-        # 1. CALCULATE SCAN RADII
-        stop_dist_phys = (agent.speed ** 2) / (2 * specs['decel'])
-
-        scan_radius_obs = max(
-            stop_dist_phys + safe['buffer_stop_obs'],
-            safe['min_lookahead_obs']
-        )
-
-        if agent.speed > specs['speed_curve']:
-            slow_dist_phys = (agent.speed**2 - specs['speed_curve']**2) / (2 * specs['decel'])
-            scan_radius_zone = slow_dist_phys + safe['buffer_stop_zone']
-        else:
-            scan_radius_zone = safe['min_lookahead_zone']
-
-        max_scan = max(scan_radius_obs, scan_radius_zone)
-
-        # 2. LOOKAHEAD LOOP
-        accum_dist = 0.0
-        search_path = [agent.current_seg] + agent.seg_queue[:5]
-
-        for i, seg_id in enumerate(search_path):
-            if accum_dist > max_scan: break
-
-            seg = self.mgr.segments[seg_id]
-            seg_len = seg['calc_len']
-
-            # Distance from Agent Center to the END of this segment
-            dist_to_seg_end = (seg_len - agent.dist) if i == 0 else (accum_dist + seg_len)
-
-            # --- A. ZONE LOGIC (Curves) ---
-            # Distance from Agent NOSE to start of segment
-            dist_nose_to_start = (-agent.dist if i == 0 else accum_dist) - specs['offsets']['Preceding']
-
-            if dist_nose_to_start < scan_radius_zone:
-                zone_type = seg.get('zone', 'normal')
-                target_z_speed = specs['speed_max']
-                if zone_type == 'slow': target_z_speed = specs['speed_curve']
-                elif zone_type == 'crawl': target_z_speed = specs['speed_crawl']
-
-                if target_z_speed < speed_cap:
-                    if dist_nose_to_start <= 0:
-                        speed_cap = min(speed_cap, target_z_speed)
-                    else:
-                        allowed = math.sqrt(target_z_speed**2 + 2 * specs['decel'] * dist_nose_to_start)
-                        speed_cap = min(speed_cap, allowed)
-
-            # --- B. OBSTACLE LOGIC ---
-            if accum_dist < scan_radius_obs:
-                others = self.traffic_ctrl.get_agents_on_segment(seg_id)
-                for other in others:
-                    if other == agent: continue
-
-                    if i == 0: rel_dist = other.dist - agent.dist
-                    else: rel_dist = accum_dist + other.dist
-
-                    # Anti-Tailing Fix: Ignore cars behind us or overlapping our center.
-                    if rel_dist <= 0: continue
-
-                    gap = rel_dist - specs['offsets']['Preceding'] + specs['offsets']['Following']
-                    stop_point = gap - safe['gap_maintained']
-
-                    if 0 < stop_point < scan_radius_obs:
-                        if stop_point < limit_dist: limit_dist = stop_point
-                    elif stop_point <= 0:
-                        limit_dist = 0.0 # Crash imminent, force stop
-
-            # --- C. MERGE LOGIC ---
-            target_node = seg['v']
-
-            # Only check if it's actually a merge (competitors exist)
-            if len(self.mgr.get_competing_segments(target_node)) > 1:
-
-                dist_nose_to_merge = dist_to_seg_end - specs['offsets']['Preceding']
-
-                # Blind Spot Fix: Check even if nose is slightly inside the intersection
-                if BLIND_SPOT_BUFFER <= dist_nose_to_merge < scan_radius_obs:
-
-                    # Priority Arbitration (using Center Distance)
-                    if not self._check_merge_priority(agent, target_node, dist_to_seg_end):
-
-                        stop_pt = dist_nose_to_merge - safe['gap_yield']
-
-                        # If inside yield gap, force stop (clamp to 0.0)
-                        if stop_pt < limit_dist: limit_dist = max(0.0, stop_pt)
-
-            if i == 0: accum_dist += (seg_len - agent.dist)
-            else: accum_dist += seg_len
-
-        return max(0.0, limit_dist), speed_cap
-
-    def _check_merge_priority(self, agent, merge_node, my_dist_to_merge):
-        """
-        Arbitrates priority using Pre-Calculated Distances from TrafficRegistry.
-        """
-        safe = OHT_SPECS['safety']
-
-        # 1. GET COMPETITORS (List of Tuples)
-        competitors = self.traffic_ctrl.get_zone_competitors(merge_node)
-        my_id = getattr(agent, 'ui_id', str(id(agent)))
-
-        for other_agent, other_dist in competitors:
-            if other_agent == agent: continue
-            other_id = getattr(other_agent, 'ui_id', str(id(other_agent)))
-            # 2. PRIORITY CHECK (Using Snapshotted Distance)
-
-            # Relevance Check
-            if other_dist - my_dist_to_merge > safe['merge_relevance_dist']: 
-                print(f"[{my_id}] Ignoring {other_id} (Too far: {other_dist - my_dist_to_merge:.0f})")
-                continue
-
-
-            delta = other_dist - my_dist_to_merge
-
-            # Tie Breaker
-            if abs(delta) < safe['merge_tie_epsilon']:
-                if id(agent) < id(other_agent): return False # Yield
-                else: continue # Win
-
-            # Distance Check
-            if other_dist < my_dist_to_merge:
-                return False # Yield
-
-        # 3. OUTGOING CLEARANCE (Anti-Gridlock)
-        # This remains a direct check because it's spatial, not intent-based
-        if hasattr(self.mgr, 'get_outgoing_segments'):
-            outgoing = self.mgr.get_outgoing_segments(merge_node)
-            for seg_id in outgoing:
-                blockers = self.traffic_ctrl.get_agents_on_segment(seg_id)
-                for other in blockers:
-                    clearance = abs(OHT_SPECS['offsets']['Following']) + safe['gap_yield']
-                    if other.dist < clearance:
-                        return False
-
-        return True
-
-    def get_state_at_offset(self, agent, offset):
-        req_dist = agent.dist + offset
-        if req_dist >= 0:
-            curr_seg = agent.current_seg
-            local = req_dist
-            q_idx = 0
-            while True:
-                slen = self.mgr.segments[curr_seg]['calc_len']
-                if local <= slen: return self.mgr.get_state(curr_seg, local)
-                local -= slen
-                if q_idx < len(agent.seg_queue):
-                    curr_seg = agent.seg_queue[q_idx]
-                    q_idx += 1
-                else: return self.mgr.get_state(curr_seg, slen + local)
-        else:
-            curr_seg = agent.current_seg
-            local = req_dist
-            h_idx = -1
-            while True:
-                if abs(h_idx) <= len(agent.history):
-                    pseg = agent.history[h_idx]
-                    plen = self.mgr.segments[pseg]['calc_len']
-                    local = plen + local
-                    if local >= 0: return self.mgr.get_state(pseg, local)
-                    h_idx -= 1
-                else:
-                    anchor = agent.history[0] if agent.history else agent.current_seg
-                    return self.mgr.get_state(anchor, local)
-
-
+from typing import Optional, List, Dict, Any, Callable
+from .kinematics import solve_kinematic_motion, interpolate_motion
 
 class OHTAgent:
-    def __init__(self, mgr: MapManager, traffic_ctrl: TrafficRegistry):
-        self.mgr = mgr
-        self.brain = SpeedController()
-        self.walker = GraphWalker(mgr, traffic_ctrl)
+    """
+    DES-driven Overhead Hoist Transport (OHT) Agent with analytical kinematic interpolation.
+    Operates via discrete block reservations, enforces stopping-distance lookaheads,
+    and protects curve segments from halting.
+    """
+    def __init__(self, agent_id: str, map_mgr: Any, traffic_controller: Any):
+        self.id = agent_id
+        self.map_mgr = map_mgr
+        self.traffic_ctrl = traffic_controller
 
-        # Navigation State
-        self.seg_queue = []
-        self.history = []
-        self.current_seg = None
-        self.dist = 0.0
+        # Spatial position
+        self.current_block: Optional[str] = None
+        self.previous_block: Optional[str] = None
+        self.current_node: Optional[int] = None
+        self.speed = 0.0  # m/s
+        self.wait_block_since: Optional[float] = None
+
+        # State machine: "IDLE", "EN_ROUTE_PICKUP", "ACTION_PICKUP", "EN_ROUTE_DROPOFF", "ACTION_DROPOFF", "WAITING_BLOCK"
+        self.state = "IDLE"
+        self.cargo: Any = None  # Carrier object or None
+
+        # Route & Mission
+        self.route: List[str] = []
+        self.target_node: Optional[int] = None
+        self.current_mission: Optional[Dict[str, Any]] = None
+
+        # Active DES motion profile
+        # { start_time, end_time, duration, profile, block_id }
+        self.active_motion: Optional[Dict[str, Any]] = None
+        self.action_end_time: Optional[float] = 0.0
+
+        # Metrics tracking
+        self.idle_since = 0.0
+        self.loaded_travel_time = 0.0
+        self.empty_travel_time = 0.0
+        self.waiting_traffic_time = 0.0
+        self.action_time = 0.0
+        self.idle_time = 0.0
+        self.total_distance = 0.0
+
+        # Cached visual position
+        self.pos = np.array([0.0, 0.0, 0.0])
+        self.heading = 0.0
+
+    def get_current_node(self) -> int:
+        if self.current_block:
+            seg = self.map_mgr.segments.get(self.current_block)
+            if seg:
+                return seg['v']
+        if self.current_node is not None:
+            return self.current_node
+        return 0
+
+    def spawn(self, block_id: str, start_at_beginning: bool = False):
+        """Initializes the OHT on a specific block."""
+        self.current_block = block_id
+        seg = self.map_mgr.segments[block_id]
+        self.current_node = seg['v']
         self.speed = 0.0
-        self.total_dist_to_target = None
+        self.state = "IDLE"
+        self.route = []
+        self.active_motion = None
+        
+        # Lock this initial block
+        self.traffic_ctrl.block_owners[block_id] = self.id
+        
+        # Set initial visual coordinates safely centered inside block
+        L = seg['calc_len']
+        dist = (L * 0.5) if not start_at_beginning else 0.0
+        p, tan = self.map_mgr.get_state(block_id, dist)
+        self.pos = p
+        self.heading = math.atan2(tan[0], tan[1]) * 180.0 / math.pi
 
-        # High-Level State
-        self.state = "UNSPAWNED"
-        self.wait_timer = 0.0
-        self.target_name = ""
-        self.ui_id = "OHT_??"
 
-        # Mission System
-        self.mission_queue = deque()  # Stores Mission objects
-        self.current_mission = None   # The Mission currently active
-
-        self.cargo_bay = [None, None]
-        self.capacity = 2
-
-        # Visuals
-        self.sensor_visuals = {k: {'pos': np.zeros(3), 'tan': np.zeros(3)} for k in OHT_SPECS['offsets']}
-
-    def spawn(self, node_id):
+    def nudge_forward(self, sim_engine: Any, visited: Optional[Set[str]] = None) -> bool:
         """
-        Teleports the agent to a valid track segment connected to node_id.
-        Must be called before adding missions.
+        If idle and blocking another vehicle, advances to the next safe non-critical parking block.
+        Cascades forward if candidate blocks are held by other idle vehicles.
         """
-        found = False
-        # Find any segment starting at this node to sit on
-        for s in self.mgr.segments.values():
-            if s['u'] == node_id:
-                self.current_seg = s['id']
-                self.dist = 0.0
-                self.history = []
-                self.seg_queue = []
-                self.state = "IDLE" # Ready for orders
-                found = True
-                print(f"[{self.ui_id}] Spawned at Node {node_id} (Seg {s['id']})")
-                break
+        if self.state not in ("IDLE",) or self.current_mission or not self.current_block:
+            return False
 
-        if not found:
-            print(f"Error: Cannot spawn at Node {node_id}. No outgoing segments found.")
+        if visited is None:
+            visited = set()
+        if self.id in visited:
+            return False
+        visited.add(self.id)
 
-    def add_mission(self, m_type, target_id=None, **kwargs):
-        """
-        Public API for the Dispatcher.
-        Example: agent.add_mission("MOVE", 101)
-        """
-        new_mission = Mission(m_type, target_id, **kwargs)
-        self.mission_queue.append(new_mission)
-        print(f"[{self.ui_id}] Queued: {m_type} -> {target_id}")
+        # BFS to find the closest sequence of blocks leading to a safe, non-critical parking block
+        queue = [([cand], cand) for cand in self.map_mgr.get_next_segments(self.current_block)]
+        while queue:
+            route, last_b = queue.pop(0)
+            if len(route) > 5:
+                continue
 
-    def update(self, dt: float):
-        if self.state == "ERROR": return
+            # Verify availability or nudge idle owners along the candidate route
+            route_clear = True
+            for b in route:
+                if not self.traffic_ctrl.is_block_free(b, self.id, self.map_mgr):
+                    owner_id = self.traffic_ctrl.block_owners.get(b)
+                    if owner_id and owner_id != self.id:
+                        agents_map = getattr(getattr(sim_engine, 'state', None), 'agents', {})
+                        owner_agent = agents_map.get(owner_id)
+                        if owner_agent and owner_agent.state == "IDLE" and not owner_agent.current_mission:
+                            owner_agent.nudge_forward(sim_engine, visited)
+                    if not self.traffic_ctrl.is_block_free(b, self.id, self.map_mgr):
+                        route_clear = False
+                        break
 
-        # 1. Mission Lifecycle
-        self._update_mission_lifecycle()
+            if not route_clear:
+                continue
 
-        # 2. State Logic
-        if self.state == "MOVING":
-            self._update_navigation(dt)
-        elif self.state == "ACTION":
-            self._update_action(dt)
+            # If destination block is a safe non-critical parking block (>= 1.0m, not curve/switch)
+            if not self.traffic_ctrl.is_critical_block(last_b, self.map_mgr) and self.map_mgr.get_block_length_m(last_b) >= 1.0:
+                self.route = list(route)
+                self.sim_engine = sim_engine
+                self.state = "EN_ROUTE_IDLE"
+                self._advance_next_block(sim_engine)
+                return True
 
-        # 3. Always update visuals (even if Idle or Unspawned)
-        if self.current_seg is not None:
-            self._update_visuals()
+            for nxt in self.map_mgr.get_next_segments(last_b):
+                if nxt not in route:
+                    queue.append((route + [nxt], nxt))
 
-    def _update_mission_lifecycle(self):
-        """
-        Manages transitions between missions without flickering to IDLE.
-        """
-        # A. Start work if IDLE
-        if self.state == "IDLE" and self.mission_queue:
-            self._start_next_mission()
+        return False
 
-        # B. Check for Completion
-        mission_complete = False
 
-        if self.state == "MOVING":
-            if self.total_dist_to_target is not None and self.total_dist_to_target <= 0.0:
-                print(f"[{self.ui_id}] Arrived at Node {self.current_mission.target_id}")
-                mission_complete = True
+    def assign_mission(
+        self,
+        mission_type: str,  # "PICKUP" or "DROPOFF"
+        target_node: int,
+        route: List[str],
+        machine: Any,
+        port_idx: int,
+        carrier: Any = None,
+        on_complete: Optional[Callable] = None,
+        sim_engine: Any = None
+    ):
+        """Assigns a new transport task and starts moving."""
+        self.sim_engine = sim_engine
+        self.current_mission = {
+            "type": mission_type,
+            "target_node": target_node,
+            "machine": machine,
+            "port_idx": port_idx,
+            "carrier": carrier,
+            "on_complete": on_complete
+        }
+        self.target_node = target_node
+        self.route = list(route)
+        if self.route and self.route[0] == self.current_block:
+            self.route.pop(0)
+        self.state = "EN_ROUTE_PICKUP" if mission_type == "PICKUP" else "EN_ROUTE_DROPOFF"
 
-        elif self.state == "ACTION":
-            # Example: Action complete condition
-            if self.wait_timer > 5.0:
-                mission_complete = True
+        # Start advancing along the route
+        self._advance_next_block(sim_engine)
 
-        # C. Handle Completion
-        if mission_complete:
-            if self.current_mission.params.get('on_complete'):
-                self.current_mission.params['on_complete']()
+    def _advance_next_block(self, sim_engine: Any):
+        """Attempts to reserve and transition into the next block on the route."""
+        if not sim_engine:
+            return
 
-            self.current_mission = None
-            self.total_dist_to_target = None
-            self.speed = 0.0 # Stop physics
+        current_time = sim_engine.sim_time
 
-            # SEAMLESS TRANSITION:
-            if self.mission_queue:
-                # Immediately start next without going IDLE
-                self._start_next_mission()
-            else:
-                # No work left, go to sleep
-                self.state = "IDLE"
-
-    def _start_next_mission(self):
-        """
-        Pops the queue and initializes the 'How' (Pathfinding).
-        """
-        mission = self.mission_queue.popleft()
-        self.current_mission = mission
-        self.wait_timer = 0.0
-       
-        # Cleanup flags from previous actions
-        if hasattr(self, '_action_performed'):
-            del self._action_performed
-
-        if mission.type == "MOVE":
-            # --- LAZY PATHFINDING HAPPENS HERE ---
-            # We calculate the path NOW, based on where we are right NOW.
-
-            logical_loc = self.get_logical_node()
-
-            if logical_loc is not None:
-                start_node = logical_loc
-            else:
-                # Fallback: In transit, plan from the end of current segment
-                start_node = self.mgr.segments[self.current_seg]['v']
-
-            # Get Path
-            path = self.mgr.find_path(start_node, mission.target_id)
-
-            if path is None:
-                print(f"[{self.ui_id}] Error: No path to {mission.target_id}")
-                self.state = "ERROR"
-                return
-
-            # Navigation Setup
-            if path:
-                next_seg_id = path[0]
-
-                if self.current_seg == next_seg_id:
-                    # Yes, just continue
-                    self.seg_queue = path[1:]
-                else:
-                    # No, we are on a different segment.
-                    # CRITICAL: Can we switch?
-                    # We can only switch if we are at the START node (dist ~ 0)
-                    # AND the new segment also starts at our current node.
-                    curr_u = self.mgr.segments[self.current_seg]['u']
-                    next_u = self.mgr.segments[next_seg_id]['u']
-
-                    if self.dist < TOLERANCE_NODE and curr_u == next_u:
-                        print(f"[{self.ui_id}] Swiveling at Node {curr_u}")
-                        self.current_seg = next_seg_id
-                        self.seg_queue = path[1:]
-                    else:
-                        # We are moving or geometry doesn't match.
-                        # We must finish current segment first.
-                        self.seg_queue = path
-            else:
-                # Path is empty (Start == Target)
-                self.seg_queue = []
-
-            self._recalc_path_distance()
-            self.state = "MOVING"
-            self.target_name = f"Node_{mission.target_id}"
-
-        elif mission.type == "ACTION":
-            self.state = "ACTION"
-            print(f"[{self.ui_id}] Starting Transfer...")
-
-    def get_logical_node(self):
-        """
-        Resolves the agent's (seg, dist) state into a Discrete Node ID.
-        Returns None if the agent is in the middle of a segment (In Transit).
-        """
-        if self.current_seg is None: return None
-           
-        seg = self.mgr.segments[self.current_seg]
-
-        if self.dist < TOLERANCE_NODE: return seg['u']
-        elif self.dist > (seg['calc_len'] - TOLERANCE_NODE): return seg['v']
-        return None
-
-    def _recalc_path_distance(self):
-        """Calculates total distance for the current plan."""
-        rem_on_seg = self.mgr.segments[self.current_seg]['calc_len'] - self.dist
-        rem_path = sum([self.mgr.segments[sid]['calc_len'] for sid in self.seg_queue])
-        self.total_dist_to_target = rem_on_seg + rem_path
-
-    def _update_navigation(self, dt):
-        """All the physics/movement logic moved here from 'update'."""
-        # 1. Get Constraints
-        limit_dist, speed_cap = self.walker.get_constraints(self)
-
-        # 2. Calculate Speed
-        target_v = self.brain.calculate_target_speed(limit_dist, speed_cap)
-
-        # 3. Dynamics
-        if self.speed < target_v:
-            self.speed = min(target_v, self.speed + OHT_SPECS['accel'] * dt)
-        elif self.speed > target_v:
-            self.speed = max(target_v, self.speed - OHT_SPECS['decel'] * dt)
-
-        # 4. Integrate
-        step = self.speed * dt
-        self.dist += step
-        if self.total_dist_to_target is not None:
-            self.total_dist_to_target = max(0.0, self.total_dist_to_target - step)
-
-        # 5. Snap to arrival
-        if (self.total_dist_to_target is not None and
-            self.total_dist_to_target <= TOLERANCE_STOP and
-            self.speed < 10.0):
-            self.total_dist_to_target = 0.0
+        if not self.route:
+            # Arrived at destination!
             self.speed = 0.0
-            return # Let _update_mission_state handle the transition
-
-        # 6. Transition
-        l = self.mgr.segments[self.current_seg]['calc_len']
-        if self.dist >= l:
-            if self.seg_queue:
-                self.history.append(self.current_seg)
-                if len(self.history) > 10: self.history.pop(0)
-                self.dist -= l
-                self.current_seg = self.seg_queue.pop(0)
-                self._recalc_path_distance()
-            else:
-                self.dist = l
-                # Mark as arrived for the mission processor
-                self.total_dist_to_target = 0.0
-
-    def _update_action(self, dt):
-        """
-        Executes the Handshake and Transfer.
-        """
-        self.wait_timer += dt
-
-        # Simulate E84 Handshake Delay (e.g., 2 seconds to align and signal)
-        if self.wait_timer < 2.0:
+            self._trigger_destination_action(sim_engine)
             return
 
-        # Perform the logic ONCE
-        if not hasattr(self, '_action_performed'):
-            self._perform_transfer_logic()
-            self._action_performed = True
+        next_block = self.route[0]
 
-    def _perform_transfer_logic(self):
-        """
-        The critical moment where ownership changes.
-        """
-        # 1. Identify where we are
-        node_id = self.get_logical_node()
+        # 1. Request block reservation from traffic controller
+        granted = self.traffic_ctrl.request_blocks_for_move(self, self.current_block, next_block, self.map_mgr)
+        # print(f"[{self.id}] advance to {next_block}: granted={granted}, speed={self.speed}")
 
-        if node_id is None:
-            print(f"[{self.ui_id}] Error: Transfer while in transit")
-            self.state = "ERROR"
-            return
+        if granted:
+            self.wait_block_since = None
+            # Advance route
+            self.route.pop(0)
+            if self.previous_block and self.previous_block != self.current_block:
+                self.traffic_ctrl.release_block(self, self.previous_block)
+            self.previous_block = self.current_block
+            self.current_block = next_block
 
-        # 2. Find the Machine at this node
-        target_machine = self.mgr.get_machine_at(node_id)
-        if not target_machine:
-            print(f"[{self.ui_id}] Error: No machine at {node_id}")
-            self.state = "ERROR"
-            return
+            # Determine target exit speed
+            upcoming_block = self.route[0] if self.route else None
+            vf = self.traffic_ctrl.get_exit_speed(self, next_block, upcoming_block, self.map_mgr)
+            v_limit = self.map_mgr.get_block_speed_limit(next_block)
+            dist_m = self.map_mgr.get_block_length_m(next_block)
 
-        # 3. Execute Handshake
-        m_params = self.current_mission.params
-        m_type = self.current_mission.type
-        port_indices = m_params.get('port_indices', [])
-        if not isinstance(port_indices, list): port_indices = [port_indices]
+            # Solve kinematic profile
+            profile = solve_kinematic_motion(
+                distance_m=dist_m,
+                v0=self.speed,
+                vf=vf,
+                v_limit=v_limit,
+                accel=1.5,
+                decel=2.0
+            )
 
-        if m_type == "ACTION": # Logic for both PICKUP/DROPOFF encoded in params
-            action_sub = m_params.get('type') # PICKUP or DROPOFF
+            self.active_motion = {
+                "start_time": current_time,
+                "end_time": current_time + profile["duration"],
+                "duration": profile["duration"],
+                "profile": profile,
+                "block_id": next_block
+            }
+            self.total_distance += dist_m
 
-            if action_sub == "PICKUP":
-                for port_idx in port_indices:
-                    free_slot = self._get_free_bay_slot()
-                    if free_slot is None: break
-
-                    cargo = target_machine.retrieve_cargo(port_idx)
-                    if cargo:
-                        self.cargo_bay[free_slot] = cargo
-                        print(f"[{self.ui_id}] Loaded {cargo.id} -> Slot {free_slot}")
-
-            elif action_sub == "DROPOFF":
-                target_cids = m_params.get('cargo_ids', m_params.get('cargo_id'))
-                if not isinstance(target_cids, list): target_cids = [target_cids]
-
-                # SAFETY CHECK: Mismatched Arrays
-                if len(target_cids) != len(port_indices):
-                    print(f"[{self.ui_id}] Error: Cargo/Port count mismatch")
-                    self.state = "ERROR"
-                    return
-
-                for cid, port_idx in zip(target_cids, port_indices):
-                    slot, cargo = self._find_cargo_in_bay(cid)
-                    if cargo:
-                        if target_machine.receive_cargo(port_idx, cargo):
-                            self.cargo_bay[slot] = None
-                            print(f"[{self.ui_id}] Unloaded {cargo.id} -> Port {port_idx}")
-                        else:
-                            print(f"[{self.ui_id}] Dropoff Failed: Port {port_idx} busy")
-                            self.state = "ERROR"
-                            return
-
-    def _get_free_bay_slot(self):
-        for i in range(self.capacity):
-            if self.cargo_bay[i] is None: return i
-        return None
-
-    def _find_cargo_in_bay(self, cid):
-        """Returns (slot_index, cargo_obj)"""
-        for i, c in enumerate(self.cargo_bay):
-            if c and c.id == cid: return i, c
-        if cid is None: # Fallback: Return first cargo
-             for i, c in enumerate(self.cargo_bay):
-                if c: return i, c
-        return None, None
-
-    def _update_visuals(self):
-        for k, off in OHT_SPECS['offsets'].items():
-            pos, tan = self.walker.get_state_at_offset(self, off)
-            self.sensor_visuals[k]['pos'] = pos
-            self.sensor_visuals[k]['tan'] = tan
-
-    def calc_dist_to_node(self, target_node: int) -> Optional[float]:
-        """Calculates dist from NOSE to node. Used by Registry."""
-        if self.current_seg is None: return None
-
-        # 1. Check Current Segment
-        curr_seg = self.mgr.segments[self.current_seg]
-       
-        # Distance from nose to end of current segment
-        # (Using center dist is fine, but nose is more accurate for intersections)
-        dist_on_curr = curr_seg['calc_len'] - self.dist
-
-        if curr_seg['v'] == target_node: return dist_on_curr
-
-        accum = dist_on_curr
-        found = False
-        for i, s_id in enumerate(self.seg_queue):
-            if i >= 5: break
-            s = self.mgr.segments[s_id]
-            if s['v'] == target_node:
-                accum += s['calc_len']
-                found = True
-                break
-            accum += s['calc_len']
-           
-        return accum if found else None
-
-    def modify_current_mission(self, new_target_id):
-        """
-        Dynamically changes the destination of the active mission
-        without stopping the vehicle (if possible).
-        """
-        if self.state != "MOVING" or self.current_mission is None:
-            print("Warning: Cannot modify mission. Agent is not moving.")
-            return
-
-        print(f"(!) Diverting Mission: {self.current_mission.target_id} -> {new_target_id}")
-
-        # 1. Update Mission Data
-        self.current_mission.target_id = new_target_id
-        self.target_name = f"Node_{new_target_id}"
-
-        # 2. Trigger Lazy Repath
-        # We find a path from our CURRENT location to the NEW target.
-        start_node = self._get_current_node_id()
-        path = self.mgr.find_path(start_node, new_target_id)
-
-        if path is None:
-            print(f"Error: No path to divert target {new_target_id}")
-            self.state = "ERROR"
-            self.speed = 0.0
-            return
-
-        # 3. Update Navigation Queue
-        # Note: We are already moving. We keep the current segment
-        # but replace the FUTURE queue.
-
-        if path:
-            # If the path starts with our current segment, just take the rest
-            if path[0] == self.current_seg:
-                self.seg_queue = path[1:]
-            else:
-                # If pathfinding gave a completely different route (rare),
-                # we might need to finish current seg then jump to path.
-                self.seg_queue = path
+            # Schedule arrival event at end of this block
+            self._motion_id = getattr(self, '_motion_id', 0) + 1
+            m_id = self._motion_id
+            sim_engine.schedule_event(
+                profile["duration"],
+                lambda mid=m_id: self._on_block_arrival(sim_engine, mid)
+            )
         else:
-            self.seg_queue = []
+            # Block is unreserved/busy; decelerate to stop at end of current block
+            self.state = "WAITING_BLOCK"
+            if self.wait_block_since is None:
+                self.wait_block_since = current_time
+            if self.speed > 0.001 and self.current_block:
+                # Decel to 0
+                dist_rem = self.map_mgr.get_block_length_m(self.current_block) * 0.5
+                profile = solve_kinematic_motion(
+                    distance_m=max(0.1, dist_rem),
+                    v0=self.speed,
+                    vf=0.0,
+                    v_limit=self.speed,
+                    accel=1.5,
+                    decel=2.0
+                )
+                self.active_motion = {
+                    "start_time": current_time,
+                    "end_time": current_time + profile["duration"],
+                    "duration": profile["duration"],
+                    "profile": profile,
+                    "block_id": self.current_block
+                }
+                self._motion_id = getattr(self, '_motion_id', 0) + 1
+                m_id = self._motion_id
+                sim_engine.schedule_event(
+                    profile["duration"],
+                    lambda mid=m_id: self._on_stopped_waiting(sim_engine, mid)
+                )
+            else:
+                self.speed = 0.0
+                self.active_motion = None
+                if self.previous_block:
+                    self.traffic_ctrl.release_block(self, self.previous_block)
+                    self.previous_block = None
+                if self.current_block:
+                    L = self.map_mgr.get_block_length_m(self.current_block)
+                    stop_dist = max(0.0, L - min(0.45, L * 0.5))
+                    p, tan = self.map_mgr.get_state(self.current_block, stop_dist)
+                    self.pos = p
+                    self.heading = math.atan2(tan[0], tan[1]) * 180.0 / math.pi
 
-        # 4. Recalculate Distance metrics immediately
-        self._recalc_path_distance()
+    def _on_block_arrival(self, sim_engine: Any, motion_id: int):
+        """Called by DES engine when vehicle reaches the end of current_block."""
+        if motion_id != getattr(self, '_motion_id', 0):
+            return  # Ignore stale event
+
+        if self.active_motion:
+            self.speed = self.active_motion["profile"]["vf"]
+
+        # If at target destination node, perform action
+        if self.current_block:
+            seg = self.map_mgr.segments[self.current_block]
+            self.current_node = seg['v']
+
+        # Unconditionally release previous block upon arriving at end of current block
+        if self.previous_block:
+            self.traffic_ctrl.release_block(self, self.previous_block)
+            self.previous_block = None
+
+        if not self.route:
+            self.speed = 0.0
+            if self.current_mission:
+                self._trigger_destination_action(sim_engine)
+            else:
+                self.state = "IDLE"
+        else:
+            # Keep rolling into next block
+            self._advance_next_block(sim_engine)
+
+
+    def _on_stopped_waiting(self, sim_engine: Any, motion_id: int):
+        if motion_id != getattr(self, '_motion_id', 0):
+            return  # Ignore stale event
+        self.speed = 0.0
+        self.active_motion = None
+        self.state = "WAITING_BLOCK"
+        if self.previous_block:
+            self.traffic_ctrl.release_block(self, self.previous_block)
+            self.previous_block = None
+        if self.current_block:
+            L = self.map_mgr.get_block_length_m(self.current_block)
+            stop_dist = max(0.0, L - min(0.45, L * 0.5))
+            p, tan = self.map_mgr.get_state(self.current_block, stop_dist)
+            self.pos = p
+            self.heading = math.atan2(tan[0], tan[1]) * 180.0 / math.pi
+
+    def on_block_freed(self, block_id: str, sim_engine: Any = None):
+        """Called by traffic controller when a block that this agent is waiting for becomes free."""
+        eng = sim_engine or getattr(self, 'sim_engine', None)
+        if self.state == "WAITING_BLOCK" and self.route:
+            if block_id in self.route[:2]:
+                if eng:
+                    self._motion_id = getattr(self, '_motion_id', 0) + 1
+                    self.state = "EN_ROUTE_PICKUP" if self.cargo is None else "EN_ROUTE_DROPOFF"
+                    self._advance_next_block(eng)
+
+    def _trigger_destination_action(self, sim_engine: Any):
+        """Handles hoist PICKUP or DROPOFF at the target machine port."""
+        if not self.current_mission:
+            self.state = "IDLE"
+            return
+
+        m_type = self.current_mission["type"]
+        machine = self.current_mission["machine"]
+        port_idx = self.current_mission["port_idx"]
+        on_complete = self.current_mission.get("on_complete")
+
+        hoist_duration = 1.5  # 1.5 seconds for hoist down / lock / hoist up
+
+        if m_type == "PICKUP":
+            self.state = "ACTION_PICKUP"
+            self.action_end_time = sim_engine.sim_time + hoist_duration
+
+            def finish_pickup():
+                self.cargo = machine.retrieve_cargo(port_idx)
+                self.state = "IDLE"
+                self.current_mission = None
+                if on_complete:
+                    on_complete(self)
+
+            sim_engine.schedule_event(hoist_duration, finish_pickup)
+
+        elif m_type == "DROPOFF":
+            self.state = "ACTION_DROPOFF"
+            self.action_end_time = sim_engine.sim_time + hoist_duration
+
+            def finish_dropoff():
+                if self.cargo:
+                    machine.receive_cargo(port_idx, self.cargo)
+                    self.cargo = None
+                self.state = "IDLE"
+                self.current_mission = None
+                if on_complete:
+                    on_complete(self)
+                # Release lookahead reservations, keeping only current_block
+                if hasattr(self.traffic_ctrl, 'release_unneeded_blocks'):
+                    self.traffic_ctrl.release_unneeded_blocks(self, {self.current_block})
+                # Immediately nudge forward away from dropoff port to prevent clogging
+                self.nudge_forward(sim_engine)
+
+            sim_engine.schedule_event(hoist_duration, finish_dropoff)
+
+    def update_metrics(self, dt_sim: float, current_time: float):
+        """Accumulates individual OHT state statistics."""
+        if self.state == "IDLE":
+            self.idle_time += dt_sim
+        elif self.state in ("ACTION_PICKUP", "ACTION_DROPOFF"):
+            self.action_time += dt_sim
+        elif self.state == "WAITING_BLOCK":
+            self.waiting_traffic_time += dt_sim
+        elif self.state == "EN_ROUTE_PICKUP":
+            self.empty_travel_time += dt_sim
+        elif self.state == "EN_ROUTE_DROPOFF":
+            self.loaded_travel_time += dt_sim
+
+    def get_pos(self, current_time: Optional[float] = None) -> np.ndarray:
+        """Returns the smooth interpolated continuous position at current_time."""
+        if not self.active_motion or not self.current_block or current_time is None:
+            return self.pos
+
+        start_t = self.active_motion["start_time"]
+        tau = current_time - start_t
+        profile = self.active_motion["profile"]
+        dist_m, vel_m_s = interpolate_motion(profile, tau)
+        self.speed = vel_m_s
+
+        p, tan = self.map_mgr.get_state(self.current_block, dist_m)
+        self.pos = p
+        self.heading = math.atan2(tan[0], tan[1]) * 180.0 / math.pi
+        return self.pos
