@@ -36,18 +36,62 @@ class OHTAgent:
         self.active_motion: Optional[Dict[str, Any]] = None
         self.action_end_time: Optional[float] = 0.0
 
-        # Metrics tracking
-        self.idle_since = 0.0
-        self.loaded_travel_time = 0.0
-        self.empty_travel_time = 0.0
-        self.waiting_traffic_time = 0.0
-        self.action_time = 0.0
-        self.idle_time = 0.0
+        # Metrics tracking (Event-driven)
+        self.state_last_change_time = 0.0
+        self.state_durations: Dict[str, float] = {
+            "IDLE": 0.0,
+            "EN_ROUTE_PICKUP": 0.0,
+            "ACTION_PICKUP": 0.0,
+            "EN_ROUTE_DROPOFF": 0.0,
+            "ACTION_DROPOFF": 0.0,
+            "WAITING_BLOCK": 0.0,
+            "EN_ROUTE_IDLE": 0.0
+        }
+        self._latest_sim_time = 0.0
+        self.waiting_block_target: Optional[str] = None
         self.total_distance = 0.0
 
         # Cached visual position
         self.pos = np.array([0.0, 0.0, 0.0])
         self.heading = 0.0
+
+    def set_state(self, new_state: str, current_time: float):
+        """Transitions vehicle state event-driven and accumulates duration."""
+        self._latest_sim_time = max(self._latest_sim_time, current_time)
+        if new_state == self.state:
+            return
+        dt = max(0.0, current_time - self.state_last_change_time)
+        self.state_durations[self.state] = self.state_durations.get(self.state, 0.0) + dt
+        self.state = new_state
+        self.state_last_change_time = current_time
+
+    def get_state_duration(self, state_name: str, current_time: float) -> float:
+        """Returns total seconds spent in state_name up to current_time."""
+        self._latest_sim_time = max(self._latest_sim_time, current_time)
+        accum = self.state_durations.get(state_name, 0.0)
+        if self.state == state_name:
+            accum += max(0.0, current_time - self.state_last_change_time)
+        return accum
+
+    @property
+    def loaded_travel_time(self) -> float:
+        return self.get_state_duration("EN_ROUTE_DROPOFF", self._latest_sim_time)
+
+    @property
+    def empty_travel_time(self) -> float:
+        return self.get_state_duration("EN_ROUTE_PICKUP", self._latest_sim_time) + self.get_state_duration("EN_ROUTE_IDLE", self._latest_sim_time)
+
+    @property
+    def action_time(self) -> float:
+        return self.get_state_duration("ACTION_PICKUP", self._latest_sim_time) + self.get_state_duration("ACTION_DROPOFF", self._latest_sim_time)
+
+    @property
+    def waiting_traffic_time(self) -> float:
+        return self.get_state_duration("WAITING_BLOCK", self._latest_sim_time)
+
+    @property
+    def idle_time(self) -> float:
+        return self.get_state_duration("IDLE", self._latest_sim_time)
 
     def get_current_node(self) -> int:
         if self.current_block:
@@ -64,12 +108,14 @@ class OHTAgent:
         seg = self.map_mgr.segments[block_id]
         self.current_node = seg['v']
         self.speed = 0.0
-        self.state = "IDLE"
+        self.set_state("IDLE", 0.0)
         self.route = []
         self.active_motion = None
         
         # Lock this initial block
         self.traffic_ctrl.block_owners[block_id] = self.id
+        if hasattr(getattr(self, 'sim_engine', None), 'state') and hasattr(self.sim_engine.state, 'analytics'):
+            self.sim_engine.state.analytics.record_segment_entry(block_id, 0.0, self.id)
         
         # Set initial visual coordinates safely centered inside block
         L = seg['calc_len']
@@ -121,7 +167,7 @@ class OHTAgent:
             if not self.traffic_ctrl.is_critical_block(last_b, self.map_mgr) and self.map_mgr.get_block_length_m(last_b) >= 1.0:
                 self.route = list(route)
                 self.sim_engine = sim_engine
-                self.state = "EN_ROUTE_IDLE"
+                self.set_state("EN_ROUTE_IDLE", sim_engine.sim_time)
                 self._advance_next_block(sim_engine)
                 return True
 
@@ -157,7 +203,8 @@ class OHTAgent:
         self.route = list(route)
         if self.route and self.route[0] == self.current_block:
             self.route.pop(0)
-        self.state = "EN_ROUTE_PICKUP" if mission_type == "PICKUP" else "EN_ROUTE_DROPOFF"
+        curr_t = sim_engine.sim_time if sim_engine else 0.0
+        self.set_state("EN_ROUTE_PICKUP" if mission_type == "PICKUP" else "EN_ROUTE_DROPOFF", curr_t)
 
         # Start advancing along the route
         self._advance_next_block(sim_engine)
@@ -179,16 +226,32 @@ class OHTAgent:
 
         # 1. Request block reservation from traffic controller
         granted = self.traffic_ctrl.request_blocks_for_move(self, self.current_block, next_block, self.map_mgr)
-        # print(f"[{self.id}] advance to {next_block}: granted={granted}, speed={self.speed}")
 
         if granted:
+            # If was waiting for a block, end the wait event
+            if self.state == "WAITING_BLOCK" and hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'analytics'):
+                sim_engine.state.analytics.record_segment_wait_end(self.waiting_block_target or next_block, current_time, self.id)
+                self.waiting_block_target = None
+
+            # Restore moving state
+            moving_state = "EN_ROUTE_PICKUP" if self.cargo is None else "EN_ROUTE_DROPOFF"
+            if not self.current_mission:
+                moving_state = "EN_ROUTE_IDLE"
+            self.set_state(moving_state, current_time)
+
             self.wait_block_since = None
             # Advance route
             self.route.pop(0)
             if self.previous_block and self.previous_block != self.current_block:
                 self.traffic_ctrl.release_block(self, self.previous_block)
+                if hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'analytics'):
+                    sim_engine.state.analytics.record_segment_exit(self.previous_block, current_time, self.id)
             self.previous_block = self.current_block
             self.current_block = next_block
+
+            # Record entry into next_block
+            if hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'analytics'):
+                sim_engine.state.analytics.record_segment_entry(next_block, current_time, self.id)
 
             # Determine target exit speed
             upcoming_block = self.route[0] if self.route else None
@@ -224,7 +287,11 @@ class OHTAgent:
             )
         else:
             # Block is unreserved/busy; decelerate to stop at end of current block
-            self.state = "WAITING_BLOCK"
+            self.set_state("WAITING_BLOCK", current_time)
+            self.waiting_block_target = next_block
+            if hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'analytics'):
+                sim_engine.state.analytics.record_segment_wait_start(next_block, current_time, self.id)
+
             if self.wait_block_since is None:
                 self.wait_block_since = current_time
             if self.speed > 0.001 and self.current_block:
@@ -256,6 +323,8 @@ class OHTAgent:
                 self.active_motion = None
                 if self.previous_block:
                     self.traffic_ctrl.release_block(self, self.previous_block)
+                    if hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'analytics'):
+                        sim_engine.state.analytics.record_segment_exit(self.previous_block, current_time, self.id)
                     self.previous_block = None
                 if self.current_block:
                     L = self.map_mgr.get_block_length_m(self.current_block)
@@ -280,6 +349,8 @@ class OHTAgent:
         # Unconditionally release previous block upon arriving at end of current block
         if self.previous_block:
             self.traffic_ctrl.release_block(self, self.previous_block)
+            if hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'analytics'):
+                sim_engine.state.analytics.record_segment_exit(self.previous_block, sim_engine.sim_time, self.id)
             self.previous_block = None
 
         if not self.route:
@@ -287,7 +358,7 @@ class OHTAgent:
             if self.current_mission:
                 self._trigger_destination_action(sim_engine)
             else:
-                self.state = "IDLE"
+                self.set_state("IDLE", sim_engine.sim_time)
         else:
             # Keep rolling into next block
             self._advance_next_block(sim_engine)
@@ -298,9 +369,11 @@ class OHTAgent:
             return  # Ignore stale event
         self.speed = 0.0
         self.active_motion = None
-        self.state = "WAITING_BLOCK"
+        self.set_state("WAITING_BLOCK", sim_engine.sim_time)
         if self.previous_block:
             self.traffic_ctrl.release_block(self, self.previous_block)
+            if hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'analytics'):
+                sim_engine.state.analytics.record_segment_exit(self.previous_block, sim_engine.sim_time, self.id)
             self.previous_block = None
         if self.current_block:
             L = self.map_mgr.get_block_length_m(self.current_block)
@@ -316,13 +389,16 @@ class OHTAgent:
             if block_id in self.route[:2]:
                 if eng:
                     self._motion_id = getattr(self, '_motion_id', 0) + 1
-                    self.state = "EN_ROUTE_PICKUP" if self.cargo is None else "EN_ROUTE_DROPOFF"
+                    moving_state = "EN_ROUTE_PICKUP" if self.cargo is None else "EN_ROUTE_DROPOFF"
+                    if not self.current_mission:
+                        moving_state = "EN_ROUTE_IDLE"
+                    self.set_state(moving_state, eng.sim_time)
                     self._advance_next_block(eng)
 
     def _trigger_destination_action(self, sim_engine: Any):
         """Handles hoist PICKUP or DROPOFF at the target machine port."""
         if not self.current_mission:
-            self.state = "IDLE"
+            self.set_state("IDLE", sim_engine.sim_time)
             return
 
         m_type = self.current_mission["type"]
@@ -333,12 +409,12 @@ class OHTAgent:
         hoist_duration = 1.5  # 1.5 seconds for hoist down / lock / hoist up
 
         if m_type == "PICKUP":
-            self.state = "ACTION_PICKUP"
+            self.set_state("ACTION_PICKUP", sim_engine.sim_time)
             self.action_end_time = sim_engine.sim_time + hoist_duration
 
             def finish_pickup():
-                self.cargo = machine.retrieve_cargo(port_idx)
-                self.state = "IDLE"
+                self.cargo = machine.retrieve_cargo(port_idx, sim_engine)
+                self.set_state("IDLE", sim_engine.sim_time)
                 self.current_mission = None
                 if on_complete:
                     on_complete(self)
@@ -346,37 +422,39 @@ class OHTAgent:
             sim_engine.schedule_event(hoist_duration, finish_pickup)
 
         elif m_type == "DROPOFF":
-            self.state = "ACTION_DROPOFF"
+            self.set_state("ACTION_DROPOFF", sim_engine.sim_time)
             self.action_end_time = sim_engine.sim_time + hoist_duration
 
             def finish_dropoff():
                 if self.cargo:
-                    machine.receive_cargo(port_idx, self.cargo)
+                    machine.receive_cargo(port_idx, self.cargo, sim_engine)
                     self.cargo = None
-                self.state = "IDLE"
+                self.set_state("IDLE", sim_engine.sim_time)
                 self.current_mission = None
                 if on_complete:
                     on_complete(self)
                 # Release lookahead reservations, keeping only current_block
                 if hasattr(self.traffic_ctrl, 'release_unneeded_blocks'):
                     self.traffic_ctrl.release_unneeded_blocks(self, {self.current_block})
-                # Immediately nudge forward away from dropoff port to prevent clogging
-                self.nudge_forward(sim_engine)
+
+                # Notify dispatcher that this agent is idle
+                if hasattr(sim_engine, 'state') and hasattr(sim_engine.state, 'dispatcher'):
+                    sim_engine.state.dispatcher.on_agent_idle(self, sim_engine)
+
+                # Delegate idle behavior to active idle_strategy
+                if self.state == "IDLE" and not self.current_mission:
+                    idle_strat = getattr(self.traffic_ctrl, 'idle_strategy', None)
+                    if idle_strat:
+                        idle_strat.on_idle(self, sim_engine)
+                    else:
+                        self.nudge_forward(sim_engine)
 
             sim_engine.schedule_event(hoist_duration, finish_dropoff)
 
+
     def update_metrics(self, dt_sim: float, current_time: float):
-        """Accumulates individual OHT state statistics."""
-        if self.state == "IDLE":
-            self.idle_time += dt_sim
-        elif self.state in ("ACTION_PICKUP", "ACTION_DROPOFF"):
-            self.action_time += dt_sim
-        elif self.state == "WAITING_BLOCK":
-            self.waiting_traffic_time += dt_sim
-        elif self.state == "EN_ROUTE_PICKUP":
-            self.empty_travel_time += dt_sim
-        elif self.state == "EN_ROUTE_DROPOFF":
-            self.loaded_travel_time += dt_sim
+        """State durations are tracked event-driven on transitions."""
+        self._latest_sim_time = current_time
 
     def get_pos(self, current_time: Optional[float] = None) -> np.ndarray:
         """Returns the smooth interpolated continuous position at current_time."""

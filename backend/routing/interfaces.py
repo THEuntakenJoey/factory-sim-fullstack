@@ -47,3 +47,16 @@ class MachineAllocationStrategy(ABC):
     def select_machine(self, candidate_machines: List[Any], pickup_node: int, map_mgr: Any) -> Optional[Any]:
         """Selects the target machine among matching candidates with available capacity/ports."""
         pass
+
+class IdleVehicleStrategy(ABC):
+    """Abstract base class for idle OHT behavior (parking in place, cruising, etc.)."""
+    @abstractmethod
+    def on_idle(self, agent: Any, sim_engine: Any) -> bool:
+        """Called when an agent enters IDLE state with no assigned mission."""
+        pass
+
+    @abstractmethod
+    def on_nudge_requested(self, agent: Any, requesting_agent: Any, sim_engine: Any) -> bool:
+        """Called when another moving agent requests the block occupied by this idle agent."""
+        pass
+

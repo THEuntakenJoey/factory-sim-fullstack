@@ -77,10 +77,13 @@ function App() {
         setIsDirty(true);
     };
 
-    // Recipes change handler: updates in-memory recipes and marks project dirty
+    // Recipes change handler: updates in-memory recipes, marks project dirty, and syncs to backend
     const saveRecipes = (newRecipes) => {
         setRecipes(newRecipes);
         setIsDirty(true);
+        if (window.API && window.API.saveRecipes) {
+            window.API.saveRecipes(project, newRecipes).catch(e => console.warn("Notice: could not auto-sync recipes:", e));
+        }
     };
 
     // Map change handler from MapBuilderTab/Builder
@@ -213,7 +216,8 @@ function App() {
             <div className="topbar">
                 <div style={{fontWeight: 'bold', color: 'white', marginRight: '24px', display: 'flex', alignItems: 'center', gap: '8px'}}>
                     <span style={{color: '#38bdf8', fontSize: '18px'}}>⚡</span>
-                    <span>OHT Builder</span>
+                    <span>FactorySim</span>
+                    <span style={{fontSize: '10px', background: '#0284c7', color: '#f0f9ff', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Full Stack</span>
                 </div>
                 
                 <button className={`tab-btn ${activeTab === 'map' ? 'active' : ''}`} onClick={() => setActiveTab('map')}>
@@ -313,7 +317,7 @@ function App() {
                         saveSchemas={saveSchemas} 
                     />
                 </div>
-                <div style={{ flex: 1, display: activeTab === 'simulation' ? 'block' : 'none', height: '100%' }}>
+                <div style={{ flex: 1, display: activeTab === 'simulation' ? 'flex' : 'none', flexDirection: 'column', height: '100%', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
                     <SimulationTab 
                         project={project} 
                         schemas={schemas} 

@@ -3,14 +3,19 @@ import numpy as np
 import math
 import heapq
 import os
+from typing import Optional
+from .config import get_oht_specs
 
 def normAng(a):
     return a % 360
 
 class MapManager:
-    def __init__(self, json_path):
+    def __init__(self, json_path: str, min_section_len: Optional[float] = None):
         if not os.path.exists(json_path):
             raise FileNotFoundError(f"Map not found: {json_path}")
+
+        specs = get_oht_specs()
+        self.min_section_len = min_section_len if min_section_len is not None else specs.get("min_section_len_m", 1.2)
 
         with open(json_path, 'r') as f:
             data = json.load(f)
@@ -96,12 +101,12 @@ class MapManager:
         d_left = np.array([-math.cos(rad), math.sin(rad), 0])
         p_start = np.array([x, y, 0])
         
-        MIN_BLOCK_LEN = 1.1
+        min_len = getattr(self, 'min_section_len', 1.2)
 
         def add_subdivided_blocks(start_pt, end_pt, seg_len, base_id):
             if seg_len <= 0.001:
                 return
-            num_blocks = max(1, int(seg_len // MIN_BLOCK_LEN))
+            num_blocks = max(1, int(seg_len // min_len))
             block_len = seg_len / num_blocks
             p_curr = start_pt
             for b in range(num_blocks):

@@ -31,6 +31,9 @@ class Dispatcher:
             "machine_allocation": machine_allocation_strategy_name
         }
 
+        # Event-driven pending transport requests queue: list of dicts
+        self.pending_requests: List[Dict[str, Any]] = []
+
     def set_strategies(
         self,
         pathfinding: Optional[str] = None,
@@ -47,45 +50,46 @@ class Dispatcher:
             self.machine_selector = get_machine_allocation_strategy(machine_allocation)
             self.strategy_names["machine_allocation"] = machine_allocation
 
-    def spin(
-        self,
-        agents: Dict[str, Any],
-        machines: Dict[str, Any],
-        recipes: Dict[str, Any],
-        sim_engine: Any,
-        analytics_tracker: Any = None
-    ):
-        current_time = sim_engine.sim_time
+    def request_transport(self, src_machine: Any, port: Any, carrier: Any, sim_engine: Any):
+        """Called by a machine when it finishes an item and requests transportation."""
+        # Avoid duplicate requests for the same carrier
+        for req in self.pending_requests:
+            if req.get("carrier") == carrier:
+                return
 
-        # 0. Watchdog: recover from deadlocked pickup missions
-        for a in agents.values():
-            if a.state == "WAITING_BLOCK" and a.current_mission and a.current_mission.get("type") == "PICKUP":
-                wait_since = getattr(a, 'wait_block_since', None)
-                if wait_since is not None and (current_time - wait_since) > 15.0:
-                    # Cancel stale reservation so system can re-dispatch
-                    mission = a.current_mission
-                    carrier = mission.get("carrier")
-                    if carrier:
-                        carrier.state = "STORED"
-                    a.current_mission = None
-                    a.route = []
-                    a.state = "IDLE"
-                    a.wait_block_since = None
-                    if hasattr(self.traffic_ctrl, 'release_unneeded_blocks'):
-                        self.traffic_ctrl.release_unneeded_blocks(a, {a.current_block})
-                    for m in machines.values():
-                        for p in m.ports:
-                            if p.reserved_by == a.id:
-                                p.reserved_by = None
-                                if p.state == "RESERVED":
-                                    p.state = "EMPTY"
-                                    m.pending_deliveries = max(0, m.pending_deliveries - 1)
+        req = {
+            "source_machine": src_machine,
+            "port": port,
+            "carrier": carrier,
+            "request_time": sim_engine.sim_time if sim_engine else 0.0
+        }
+        self.pending_requests.append(req)
+        self.try_dispatch(sim_engine)
 
-        idle_agents = [a for a in agents.values() if a.state == "IDLE" and not a.route]
+    def on_agent_idle(self, agent: Any, sim_engine: Any):
+        """Called when an OHT enters IDLE state with no route or cargo."""
+        self.try_dispatch(sim_engine)
+
+    def on_machine_slot_freed(self, machine: Any, sim_engine: Any):
+        """Called when a machine slot becomes free."""
+        self.try_dispatch(sim_engine)
+
+
+    def try_dispatch(self, sim_engine: Any):
+        """Processes pending transport requests in FIFO order and matches with best idle OHT."""
+        if not sim_engine or not hasattr(sim_engine, "state"):
+            return
+
+        state = sim_engine.state
+        agents = state.agents
+        machines = state.machines
+        recipes = getattr(state, "recipes", {})
+        analytics_tracker = getattr(state, "analytics", None)
+
+        idle_agents = [a for a in agents.values() if a.state == "IDLE" and not a.route and not a.current_mission]
         if not idle_agents:
             return
 
-        # Build traffic data for congestion-aware routing
         traffic_data = {
             "occupancy": {},
             "jam_time": getattr(analytics_tracker, "segment_jam_time", {}) if analytics_tracker else {}
@@ -94,51 +98,56 @@ class Dispatcher:
             if a.current_block:
                 traffic_data["occupancy"][a.current_block] = traffic_data["occupancy"].get(a.current_block, 0) + 1
 
-        # Scan machines for ready cargo
-        for src_m in machines.values():
-            if not idle_agents:
-                break
+        i = 0
+        while i < len(self.pending_requests) and idle_agents:
+            req = self.pending_requests[i]
+            src_m = req["source_machine"]
+            carrier = req["carrier"]
+            unload_port = req["port"]
 
-            unload_port = src_m.get_ready_unload_port()
-            if not unload_port or not unload_port.carrier:
+            # Check if request is still valid
+            if unload_port.carrier != carrier or carrier.state == "IN_TRANSIT":
+                self.pending_requests.pop(i)
                 continue
 
-            carrier = unload_port.carrier
             if carrier.state == "RESERVED_FOR_PICKUP":
-                continue  # Already assigned to an incoming OHT
+                i += 1
+                continue
 
             # 1. Determine destination machine candidates
             next_schema_id = carrier.get_current_step_schema(recipes)
             dest_candidates = []
 
             if carrier.is_finished(recipes) or next_schema_id is None:
-                # Destination is a Sink machine
                 dest_candidates = [m for m in machines.values() if m.machine_role == "sink" and m.get_available_load_port()]
             else:
-                # Destination is a machine matching next_schema_id with an available LOAD port
                 dest_candidates = [
                     m for m in machines.values()
                     if m.schema_id == next_schema_id and m.get_available_load_port()
                 ]
 
-            # 2. BACKPRESSURE CHECK: If no downstream machine has an available port, DO NOT PICK UP!
+            # 2. BACKPRESSURE CHECK: If no downstream machine has space, request remains queued & upstream machine stays halted
             if not dest_candidates:
+                src_m.state = "PAUSED_BACKPRESSURE"
+                i += 1
                 continue
 
             # 3. Select target machine via MachineAllocationStrategy
             src_node = unload_port.node_idx
             target_machine = self.machine_selector.select_machine(dest_candidates, src_node, self.map_mgr)
             if not target_machine:
+                i += 1
                 continue
 
             # 4. Select best idle OHT via VehicleAssignmentStrategy
             agent = self.vehicle_selector.select_agent(idle_agents, src_node, self.map_mgr)
             if not agent:
-                continue
+                break
 
-            # 5. Lock Downstream Load Port & Reserve Carrier
+            # 5. LAZY RESERVATION: Atomically lock downstream port at dispatch time
             target_port = target_machine.reserve_load_port(agent.id)
             if not target_port:
+                i += 1
                 continue
 
             carrier.state = "RESERVED_FOR_PICKUP"
@@ -150,17 +159,19 @@ class Dispatcher:
             path_to_dropoff = self.pathfinder.find_path(self.map_mgr, src_node, dest_node, traffic_data)
 
             if path_to_pickup is None or path_to_dropoff is None:
-                # Route unavailable; unreserve and wait
+                # Route unavailable; release reservation and leave request queued
                 target_port.state = "EMPTY"
                 target_port.reserved_by = None
                 target_machine.pending_deliveries = max(0, target_machine.pending_deliveries - 1)
                 carrier.state = "STORED"
+                i += 1
                 continue
 
-            # Successfully planned transfer! Remove agent from local idle pool
+            # Successfully planned transfer! Remove request and agent
+            self.pending_requests.pop(i)
             idle_agents.remove(agent)
 
-            # 7. Handshake Mission Chain:
+            # 7. Handshake Mission Chain (Factory function prevents late-binding closure bug)
             def make_pickup_complete(d_node, d_mach, d_port_idx, c_obj, s_eng):
                 def on_pickup_complete(ag):
                     curr_node = ag.get_current_node()
@@ -179,7 +190,6 @@ class Dispatcher:
                     )
                 return on_pickup_complete
 
-            # Assign initial PICKUP mission
             agent.assign_mission(
                 mission_type="PICKUP",
                 target_node=src_node,
@@ -190,4 +200,54 @@ class Dispatcher:
                 on_complete=make_pickup_complete(dest_node, target_machine, target_port.index, carrier, sim_engine),
                 sim_engine=sim_engine
             )
+
+    def spin(
+        self,
+        agents: Dict[str, Any],
+        machines: Dict[str, Any],
+        recipes: Dict[str, Any],
+        sim_engine: Any,
+        analytics_tracker: Any = None
+    ):
+        """Watchdog / fallback periodic sweep to resolve deadlocks and sync requests."""
+        current_time = sim_engine.sim_time
+
+        # 0. Watchdog: recover from deadlocked pickup missions
+        for a in agents.values():
+            if a.state == "WAITING_BLOCK" and a.current_mission and a.current_mission.get("type") == "PICKUP":
+                wait_since = getattr(a, 'wait_block_since', None)
+                if wait_since is not None and (current_time - wait_since) > 15.0:
+                    mission = a.current_mission
+                    carrier = mission.get("carrier")
+                    if carrier:
+                        carrier.state = "STORED"
+                    a.current_mission = None
+                    a.route = []
+                    a.state = "IDLE"
+                    a.wait_block_since = None
+                    if hasattr(self.traffic_ctrl, 'release_unneeded_blocks'):
+                        self.traffic_ctrl.release_unneeded_blocks(a, {a.current_block})
+                    for m in machines.values():
+                        for p in m.ports:
+                            if p.reserved_by == a.id:
+                                p.reserved_by = None
+                                if p.state == "RESERVED":
+                                    p.state = "EMPTY"
+                                    m.pending_deliveries = max(0, m.pending_deliveries - 1)
+
+        # Fallback sync: enqueue any unreserved unloads
+        for src_m in machines.values():
+            unload_port = src_m.get_ready_unload_port()
+            if unload_port and unload_port.carrier and unload_port.carrier.state not in ("RESERVED_FOR_PICKUP", "IN_TRANSIT"):
+                carrier = unload_port.carrier
+                if not any(req.get("carrier") == carrier for req in self.pending_requests):
+                    self.pending_requests.append({
+                        "source_machine": src_m,
+                        "port": unload_port,
+                        "carrier": carrier,
+                        "request_time": current_time
+                    })
+
+        self.try_dispatch(sim_engine)
+
 

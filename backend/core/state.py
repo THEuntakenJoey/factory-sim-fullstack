@@ -7,6 +7,7 @@ from ..models.devices import VirtualMachine
 from ..models.vehicles import OHTAgent
 from ..routing.dispatcher import Dispatcher
 from ..routing.traffic_control import get_traffic_strategy
+from ..routing.strategies import get_idle_vehicle_strategy
 from ..metrics.analytics import AnalyticsTracker
 
 class FactoryState:
@@ -19,7 +20,8 @@ class FactoryState:
         project_dir: str,
         map_filename: str = "map.json",
         fleet_size: int = 5,
-        strategies: Optional[Dict[str, str]] = None
+        strategies: Optional[Dict[str, str]] = None,
+        recipes: Optional[Dict[str, Any]] = None
     ):
         self.project_dir = project_dir
         self.map_filename = map_filename
@@ -28,13 +30,19 @@ class FactoryState:
             "pathfinding": "dijkstra",
             "traffic": "block_reservation",
             "vehicle_assignment": "nearest",
-            "machine_allocation": "least_loaded"
+            "machine_allocation": "least_loaded",
+            "idle_strategy": "stay_and_nudge"
         }
+
+        # FIFO list of upstream machines halted waiting for downstream capacity
+        # [{"machine": vm, "schema_id": str, "time": float, "carrier": carrier, "port": port}]
+        self.halted_upstream_machines: List[Dict[str, Any]] = []
 
         # 1. File Paths
         map_path = os.path.join(project_dir, 'maps', map_filename)
         schema_path = os.path.join(project_dir, 'schema', 'machineAndSchema.json')
         recipes_path = os.path.join(project_dir, 'schema', 'recipes.json')
+
 
         # 2. Load Static Layout
         self.map_mgr = MapManager(map_path)
@@ -49,7 +57,14 @@ class FactoryState:
                 print(f"Error loading schemas: {e}")
 
         self.recipes: Dict[str, Any] = {}
-        if os.path.exists(recipes_path):
+        if recipes is not None:
+            self.recipes = recipes
+            try:
+                with open(recipes_path, 'w') as f:
+                    json.dump(self.recipes, f, indent=2)
+            except Exception as e:
+                print(f"Error persisting recipes: {e}")
+        elif os.path.exists(recipes_path):
             try:
                 with open(recipes_path, 'r') as f:
                     self.recipes = json.load(f)
@@ -59,6 +74,7 @@ class FactoryState:
         # 4. Control Systems & Analytics
         self.traffic_ctrl = get_traffic_strategy(self.strategies.get("traffic", "block_reservation"))
         self.traffic_ctrl.reset()
+        self.traffic_ctrl.idle_strategy = get_idle_vehicle_strategy(self.strategies.get("idle_strategy", "stay_and_nudge"))
 
         self.dispatcher = Dispatcher(
             map_mgr=self.map_mgr,
@@ -76,6 +92,78 @@ class FactoryState:
 
         self._build_machines()
         self._spawn_fleet(self.fleet_size)
+
+    def init_simulation(self, sim_engine: Any):
+        """Called upon simulation engine startup or reset."""
+        for a in self.agents.values():
+            a.sim_engine = sim_engine
+        for m in self.machines.values():
+            if m.machine_role == "source":
+                m.start_generator(sim_engine)
+
+    def check_downstream_and_request_transport(self, src_machine: VirtualMachine, port: Any, carrier: Any, sim_engine: Any):
+        """
+        Reactive downstream availability check.
+        If downstream has an available LOAD port, notifies dispatcher.
+        If not, puts machine in PAUSED_BACKPRESSURE and enqueues to FIFO halted list.
+        """
+        if not carrier:
+            return
+
+        # Fallback recipe id if carrier's recipe_id is missing from active recipes
+        if carrier.recipe_id not in self.recipes and self.recipes:
+            carrier.recipe_id = list(self.recipes.keys())[0]
+
+        next_schema_id = carrier.get_current_step_schema(self.recipes)
+        dest_candidates = []
+
+        if carrier.is_finished(self.recipes) or next_schema_id is None:
+            dest_candidates = [m for m in self.machines.values() if m.machine_role == "sink" and m.get_available_load_port()]
+        else:
+            dest_candidates = [
+                m for m in self.machines.values()
+                if m.schema_id == next_schema_id and m.get_available_load_port()
+            ]
+
+        if dest_candidates:
+            # Downstream available -> request transport
+            self.dispatcher.request_transport(src_machine, port, carrier, sim_engine)
+        else:
+            # Downstream unavailable -> halt machine (backpressure) and register in FIFO queue
+            src_machine.state = "PAUSED_BACKPRESSURE"
+            if not any(entry["carrier"] == carrier for entry in self.halted_upstream_machines):
+                self.halted_upstream_machines.append({
+                    "machine": src_machine,
+                    "schema_id": next_schema_id or "sink",
+                    "time": sim_engine.sim_time if sim_engine else 0.0,
+                    "carrier": carrier,
+                    "port": port
+                })
+
+    def notify_slot_freed(self, freed_machine: VirtualMachine, sim_engine: Any):
+        """
+        Called when a machine slot is freed.
+        Performs a FIFO check on halted upstream machines to awaken the oldest waiting machine.
+        """
+        freed_schema = freed_machine.schema_id if freed_machine.machine_role != "sink" else "sink"
+
+        # Search for oldest halted upstream machine needing this schema
+        for idx, entry in enumerate(list(self.halted_upstream_machines)):
+            if entry["schema_id"] == freed_schema:
+                up_m = entry["machine"]
+                port = entry["port"]
+                carrier = entry["carrier"]
+
+                # Check if carrier still ready
+                if port.carrier == carrier:
+                    self.halted_upstream_machines.pop(idx)
+                    up_m.state = "PROCESSING" if up_m.processing else "IDLE"
+                    self.dispatcher.request_transport(up_m, port, carrier, sim_engine)
+                    break
+
+        # Notify dispatcher
+        self.dispatcher.on_machine_slot_freed(freed_machine, sim_engine)
+
 
     def _build_machines(self):
         """Constructs VirtualMachines from map machine placements and schemas."""
@@ -139,11 +227,15 @@ class FactoryState:
             for agent in self.agents.values():
                 agent.traffic_ctrl = self.traffic_ctrl
 
+        if "idle_strategy" in strategies:
+            self.traffic_ctrl.idle_strategy = get_idle_vehicle_strategy(strategies["idle_strategy"])
+
         self.dispatcher.set_strategies(
             pathfinding=strategies.get("pathfinding"),
             vehicle_assignment=strategies.get("vehicle_assignment"),
             machine_allocation=strategies.get("machine_allocation")
         )
+
 
     def set_fleet_size(self, count: int):
         self.fleet_size = max(1, min(20, count))
@@ -192,11 +284,18 @@ class FactoryState:
             })
 
         metrics_data = self.analytics.get_summary(current_time, self.machines, self.agents)
+        from .config import get_oht_specs
+
+        strat_dict = dict(self.dispatcher.strategy_names)
+        strat_dict["traffic"] = self.strategies.get("traffic", "block_reservation")
+        strat_dict["idle_strategy"] = self.strategies.get("idle_strategy", "stay_and_nudge")
 
         return {
             "sim_time": round(current_time, 2),
             "agents": agents_data,
             "machines": machines_data,
             "metrics": metrics_data,
-            "strategies": self.dispatcher.strategy_names
+            "strategies": strat_dict,
+            "oht_specs": get_oht_specs()
         }
+

@@ -1,7 +1,7 @@
 [project]
-name = "oht-kinematic"
+name = "factory-sim-fullstack"
 version = "0.1.0"
-description = "Add your description here"
+description = "Full-stack factory simulation platform with discrete-event simulation (DES), kinematic physics engine, interactive track builder, and real-time web UI"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

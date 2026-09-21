@@ -50,10 +50,15 @@ async def shutdown_event():
 
 async def broadcast_loop():
     """Broadcasts the simulation state to all connected WebSocket clients at 30 FPS."""
+    import time
     while True:
         if connected_clients:
             try:
-                payload = json.dumps(factory_state.to_dict(sim_engine.sim_time))
+                state_dict = factory_state.to_dict(sim_engine.sim_time)
+                state_dict["server_time"] = time.time()
+                state_dict["is_paused"] = (sim_engine.time_scale == 0.0)
+                state_dict["time_scale"] = sim_engine.time_scale
+                payload = json.dumps(state_dict)
                 disconnected = set()
                 for client in connected_clients:
                     try:
@@ -98,7 +103,11 @@ async def websocket_endpoint(websocket: WebSocket):
             elif action == "set_speed":
                 sim_engine.time_scale = float(cmd.get("speed", 1.0))
     except WebSocketDisconnect:
-        connected_clients.remove(websocket)
+        pass
+    except Exception:
+        pass
+    finally:
+        connected_clients.discard(websocket)
 
 # Simulation REST API
 @app.post("/api/simulation/init")
@@ -110,6 +119,7 @@ async def simulation_init(request: Request):
     map_filename = body.get("map_filename", "map.json")
     fleet_size = int(body.get("fleet_size", 5))
     strategies = body.get("strategies", {})
+    recipes = body.get("recipes", None)
 
     proj_dir = get_project_dir(project)
     
@@ -121,7 +131,8 @@ async def simulation_init(request: Request):
         project_dir=proj_dir,
         map_filename=map_filename,
         fleet_size=fleet_size,
-        strategies=strategies
+        strategies=strategies,
+        recipes=recipes
     )
     sim_engine = SimulationEngine(factory_state)
     asyncio.create_task(sim_engine.run())
@@ -131,7 +142,8 @@ async def simulation_init(request: Request):
         "project": project,
         "map_filename": map_filename,
         "fleet_size": fleet_size,
-        "strategies": factory_state.strategies
+        "strategies": factory_state.strategies,
+        "recipes": factory_state.recipes
     }
 
 @app.post("/api/simulation/control")
@@ -169,17 +181,28 @@ async def simulation_control(request: Request):
 
 @app.post("/api/simulation/config")
 async def simulation_config(request: Request):
-    """Updates modular strategies or fleet size in real time."""
+    """Updates modular strategies, fleet size, or OHT specs in real time."""
     body = await request.json()
     if "strategies" in body:
         factory_state.update_strategies(body["strategies"])
     if "fleet_size" in body:
         factory_state.set_fleet_size(int(body["fleet_size"]))
+    if "oht_specs" in body:
+        from .core.config import update_oht_specs
+        update_oht_specs(body["oht_specs"])
+    from .core.config import get_oht_specs
     return {
         "status": "ok",
         "strategies": factory_state.strategies,
-        "fleet_size": factory_state.fleet_size
+        "fleet_size": factory_state.fleet_size,
+        "oht_specs": get_oht_specs()
     }
+
+@app.get("/api/simulation/oht_specs")
+async def get_simulation_oht_specs():
+    from .core.config import get_oht_specs
+    return get_oht_specs()
+
 
 @app.get("/api/simulation/strategies")
 def get_strategies_list():
@@ -188,7 +211,8 @@ def get_strategies_list():
         "pathfinding": ["dijkstra", "congestion_aware"],
         "traffic": ["block_reservation", "kinematic_merge"],
         "vehicle_assignment": ["nearest", "fifo"],
-        "machine_allocation": ["least_loaded", "closest", "round_robin"]
+        "machine_allocation": ["least_loaded", "closest", "round_robin"],
+        "idle_strategy": ["stay_and_nudge", "cruising"]
     }
 
 @app.get("/api/simulation/export_metrics")
@@ -208,6 +232,54 @@ def export_metrics(format: str = "json"):
             headers={"Content-Disposition": "attachment; filename=simulation_metrics.csv"}
         )
     return summary
+
+@app.post("/api/simulation/fast_forward")
+async def simulation_fast_forward(request: Request):
+    """
+    Executes discrete-event simulation in headless turbo mode at maximum CPU speed.
+    Runs until duration has elapsed, pauses, and returns the complete analytical summary.
+    """
+    global factory_state, sim_engine
+    body = await request.json()
+    duration = float(body.get("duration", 60.0))
+    dt = float(body.get("dt", 0.05))
+    reset_first = bool(body.get("reset_first", False))
+
+    if reset_first:
+        sim_engine.reset()
+        target_sim_time = duration
+    else:
+        target_sim_time = sim_engine.sim_time + duration
+
+    # Pause real-time progression during turbo stepping
+    sim_engine.time_scale = 0.0
+
+    # Fast-forward stepping loop
+    max_steps = int(duration / dt) + 1000
+    steps = 0
+    while sim_engine.sim_time < target_sim_time and steps < max_steps:
+        step_dt = min(dt, target_sim_time - sim_engine.sim_time)
+        if step_dt <= 0.0001:
+            break
+        sim_engine.step(step_dt)
+        steps += 1
+
+    sim_engine.time_scale = 0.0
+
+    # Retrieve full analytics summary
+    summary = factory_state.analytics.get_summary(
+        sim_engine.sim_time,
+        factory_state.machines,
+        factory_state.agents
+    )
+
+    return {
+        "status": "ok",
+        "sim_time": round(sim_engine.sim_time, 2),
+        "duration_run": duration,
+        "steps_computed": steps,
+        "summary": summary
+    }
 
 @app.get("/api/health")
 def read_health():
@@ -301,6 +373,8 @@ async def save_recipes(project: str, request: Request):
     data = await request.json()
     with open(path, 'w') as f:
         json.dump(data, f, indent=2)
+    global factory_state
+    factory_state.recipes = data
     return {"status": "ok"}
 
 @app.post("/api/projects/{project}/save")
@@ -326,7 +400,14 @@ async def save_project(project: str, request: Request):
             json.dump(data["schemas"], f, indent=2)
         saved["schemas"] = True
 
-    # Auto-reload running simulation with the newly saved map and schema data
+    # Save recipes if present
+    if "recipes" in data and data["recipes"] is not None:
+        recipe_path = os.path.join(proj_dir, 'schema', 'recipes.json')
+        with open(recipe_path, 'w') as f:
+            json.dump(data["recipes"], f, indent=2)
+        saved["recipes"] = True
+
+    # Auto-reload running simulation with the newly saved map, schema, and recipes data
     try:
         global factory_state, sim_engine
         current_time_scale = sim_engine.time_scale
@@ -337,7 +418,8 @@ async def save_project(project: str, request: Request):
             project_dir=proj_dir,
             map_filename=map_fn,
             fleet_size=factory_state.fleet_size,
-            strategies=factory_state.strategies
+            strategies=factory_state.strategies,
+            recipes=data.get("recipes")
         )
         sim_engine = SimulationEngine(factory_state)
         sim_engine.time_scale = current_time_scale

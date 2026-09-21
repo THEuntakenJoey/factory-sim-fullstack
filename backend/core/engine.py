@@ -20,8 +20,10 @@ class SimulationEngine:
         self.event_queue: List[Any] = []
         self._event_id_counter = 0
 
-        # Link engine reference to all agents for traffic nudging
-        if hasattr(self.state, "agents"):
+        # Initialize state with engine
+        if hasattr(self.state, "init_simulation"):
+            self.state.init_simulation(self)
+        elif hasattr(self.state, "agents"):
             for a in self.state.agents.values():
                 a.sim_engine = self
 
@@ -29,12 +31,13 @@ class SimulationEngine:
         self.sim_time = 0.0
         self.event_queue.clear()
         self._event_id_counter = 0
-        if hasattr(self.state, "agents"):
+        if hasattr(self.state, "init_simulation"):
+            self.state.init_simulation(self)
+        elif hasattr(self.state, "agents"):
             for a in self.state.agents.values():
                 a.sim_engine = self
         if hasattr(self.state, "analytics"):
             self.state.analytics.reset()
-
 
     def schedule_event(self, delay: float, callback: Callable):
         """Schedules a callback to fire at (current_sim_time + delay)."""
@@ -56,17 +59,12 @@ class SimulationEngine:
         self.sim_time += dt
         self._process_events()
 
-        # Step machines
+        # Update timestamp on machines & agents
         for m in self.state.machines.values():
             m.step(dt, self.sim_time, self.state.recipes, self.state.analytics)
 
-        # Step agents & record track analytics
         for a in self.state.agents.values():
             a.update_metrics(dt, self.sim_time)
-            # If agent is in traffic jam (waiting for block or creeping < 0.3 m/s)
-            if a.state == "WAITING_BLOCK" or (a.state in ("EN_ROUTE_PICKUP", "EN_ROUTE_DROPOFF") and a.speed < 0.3):
-                if a.current_block and hasattr(self.state, "analytics"):
-                    self.state.analytics.record_segment_jam(a.current_block, dt)
 
         # Dispatcher scan
         self.state.dispatcher.spin(
@@ -81,6 +79,12 @@ class SimulationEngine:
         self.running = True
         dt_real = 1.0 / self.tick_rate
 
+        # Initialize simulation generators
+        if hasattr(self.state, "init_simulation"):
+            self.state.init_simulation(self)
+
+        last_watchdog_time = 0.0
+
         while self.running:
             start_time = time.time()
 
@@ -88,28 +92,27 @@ class SimulationEngine:
                 dt_sim = dt_real * self.time_scale
                 self.sim_time += dt_sim
 
-                # 1. Process DES Events (Arrivals, Releases, Hoist Actions)
+                # 1. Process DES Events (Intakes, Finishes, Arrivals, Releases, Hoist Actions)
                 self._process_events()
 
-                # 2. Step Machines (Processing, Backpressure Pausing, Sinks)
+                # 2. Update timestamps for state durations
                 for m in self.state.machines.values():
                     m.step(dt_sim, self.sim_time, self.state.recipes, self.state.analytics)
 
-                # 3. Step Agents & Record Jam Metrics
                 for a in self.state.agents.values():
                     a.update_metrics(dt_sim, self.sim_time)
-                    if a.state == "WAITING_BLOCK" or (a.state in ("EN_ROUTE_PICKUP", "EN_ROUTE_DROPOFF") and a.speed < 0.3):
-                        if a.current_block and hasattr(self.state, "analytics"):
-                            self.state.analytics.record_segment_jam(a.current_block, dt_sim)
 
-                # 4. Dispatcher Periodic Spin (Closed-Loop Reservations)
-                self.state.dispatcher.spin(
-                    self.state.agents,
-                    self.state.machines,
-                    self.state.recipes,
-                    self,
-                    self.state.analytics
-                )
+                # 3. Low-frequency watchdog sweep (every 1.0s sim time)
+                if (self.sim_time - last_watchdog_time) >= 1.0:
+                    last_watchdog_time = self.sim_time
+                    self.state.dispatcher.spin(
+                        self.state.agents,
+                        self.state.machines,
+                        self.state.recipes,
+                        self,
+                        self.state.analytics
+                    )
+
 
             # Sleep to maintain tick rate
             elapsed = time.time() - start_time

@@ -1,5 +1,6 @@
 from typing import List, Optional, Any, Dict
-from .interfaces import VehicleAssignmentStrategy, MachineAllocationStrategy
+from .interfaces import VehicleAssignmentStrategy, MachineAllocationStrategy, IdleVehicleStrategy
+from .idle_strategies import StayAndNudgeStrategy, CruisingStrategy
 
 class NearestIdleVehicleAssignment(VehicleAssignmentStrategy):
     """Assigns the idle vehicle with the shortest physical track distance to the pickup node."""
@@ -110,8 +111,17 @@ MACHINE_ALLOCATION_STRATEGIES: Dict[str, MachineAllocationStrategy] = {
     "round_robin": RoundRobinMachineAllocation()
 }
 
+IDLE_VEHICLE_STRATEGIES: Dict[str, IdleVehicleStrategy] = {
+    "stay_and_nudge": StayAndNudgeStrategy(),
+    "cruising": CruisingStrategy()
+}
+
 def get_vehicle_assignment_strategy(name: str) -> VehicleAssignmentStrategy:
     return VEHICLE_ASSIGNMENT_STRATEGIES.get(name, VEHICLE_ASSIGNMENT_STRATEGIES["nearest"])
 
 def get_machine_allocation_strategy(name: str) -> MachineAllocationStrategy:
     return MACHINE_ALLOCATION_STRATEGIES.get(name, MACHINE_ALLOCATION_STRATEGIES["least_loaded"])
+
+def get_idle_vehicle_strategy(name: str) -> IdleVehicleStrategy:
+    return IDLE_VEHICLE_STRATEGIES.get(name, IDLE_VEHICLE_STRATEGIES["stay_and_nudge"])
+

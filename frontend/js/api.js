@@ -108,5 +108,28 @@ window.API = {
     verifyGraph: async function(graph) {
         // Mock verification for now until backend implements it
         return { is_valid: true, errored_pieces: [], loose_ends: [] };
+    },
+
+    // Simulation & Modular Strategies API
+    getStrategies: async function() {
+        return this.request('/api/simulation/strategies');
+    },
+    updateSimulationConfig: async function(config) {
+        return this.request('/api/simulation/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+    },
+    getOhtSpecs: async function() {
+        return this.request('/api/simulation/oht_specs');
+    },
+    fastForward: async function(options) {
+        return this.request('/api/simulation/fast_forward', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(options)
+        });
     }
 };
+
