@@ -14,11 +14,7 @@ It couples a continuous **second-order kinematic physics engine** with a **discr
 
 ## Key Features
 
-### 1. Hybrid Simulation Engine (Kinematics + Discrete Event Logistics)
-- **Continuous 2nd-Order Kinematics**:
-  - Realistic motion profiling with acceleration limits, deceleration profiles, maximum operational speeds, and turn-rate speed adjustments.
-  - Dynamic distance headway following models to prevent collisions and simulate realistic bumper-to-bumper queueing.
-  - Multi-segment trajectory calculation along straight segments and Bezier curves.
+### 1. Discrete Event Logistics
 - **Fab Logistics & DES (Manufacturing Execution / Material Control)**:
   - Equipment modeling: `Source`, `Process`, `Sink`, and buffer stations.
   - Four-state machine tracking: `PROCESSING`, `STARVED`, `BLOCKED`, and `IDLE`.
